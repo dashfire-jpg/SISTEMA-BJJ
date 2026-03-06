@@ -10,13 +10,15 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "recharts": "^3.7.0",
-    "react": "^19.2.4",
-    "lucide-react": "^0.564.0",
-    "react-dom": "^19.2.4",
     "@google/genai": "^1.41.0",
+    "@tailwindcss/vite": "^4.2.1",
     "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2"
+    "jspdf-autotable": "^3.8.2",
+    "lucide-react": "^0.564.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.7.0",
+    "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -23,6 +23,13 @@ export interface AdminProfile {
   address: string;
   registered: boolean;
   logoUrl?: string;
+  monetization?: {
+    showAds: boolean;
+    customBannerUrl?: string;
+    customBannerLink?: string;
+    adClientId?: string;
+    adSlotId?: string;
+  };
 }
 
 export interface TrainingClass {
@@ -83,5 +90,6 @@ export enum AppView {
   Timer = 'timer',
   AdminRegistration = 'admin-registration',
   Settings = 'settings',
-  Classes = 'classes'
+  Classes = 'classes',
+  QTS = 'qts'
 }

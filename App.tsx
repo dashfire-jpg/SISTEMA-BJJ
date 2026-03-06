@@ -24,7 +24,7 @@ const BELT_COLORS: Record<string, string> = {
   'Preta': '#0f172a'
 };
 
-const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/2906/2906474.png";
+const DEFAULT_LOGO = "https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80&w=512&h=512";
 
 const BeltBadge: React.FC<{ belt: Belt; degrees: number }> = ({ belt, degrees }) => (
   <div className="flex items-center gap-2">
@@ -128,6 +128,31 @@ const PWAInstallPrompt: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   );
 };
 
+const AdSense: React.FC<{ client?: string; slot?: string }> = ({ client, slot }) => {
+  useEffect(() => {
+    try {
+      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+    } catch (e) {
+      console.error('AdSense error:', e);
+    }
+  }, []);
+
+  if (!client || !slot) return null;
+
+  return (
+    <div className="w-full overflow-hidden my-4 flex justify-center">
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block' }}
+        data-ad-client={client}
+        data-ad-slot={slot}
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+};
+
 const formatTime = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -141,11 +166,13 @@ const App: React.FC = () => {
   const STORAGE_KEY_TRANSACTIONS = 'sistemabjj_transactions_prod';
   const STORAGE_KEY_ADMIN = 'sistemabjj_admin_prod';
   const STORAGE_KEY_CLASSES = 'sistemabjj_classes_prod';
+  const STORAGE_KEY_PLANNING = 'sistemabjj_planning_prod';
 
   const [athletes, setAthletes] = useState<Athlete[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ATHLETES) || '[]'));
   const [transactions, setTransactions] = useState<Transaction[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]'));
   const [classes, setClasses] = useState<TrainingClass[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_CLASSES) || '[]'));
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ADMIN) || 'null'));
+  const [weeklyPlanning, setWeeklyPlanning] = useState<string>(() => localStorage.getItem(STORAGE_KEY_PLANNING) || '');
   const [logoPreview, setLogoPreview] = useState<string>(adminProfile?.logoUrl || DEFAULT_LOGO);
 
   // UI State
@@ -178,8 +205,9 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_ATHLETES, JSON.stringify(athletes));
     localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(transactions));
     localStorage.setItem(STORAGE_KEY_CLASSES, JSON.stringify(classes));
+    localStorage.setItem(STORAGE_KEY_PLANNING, weeklyPlanning);
     if (adminProfile) localStorage.setItem(STORAGE_KEY_ADMIN, JSON.stringify(adminProfile));
-  }, [athletes, transactions, classes, adminProfile]);
+  }, [athletes, transactions, classes, adminProfile, weeklyPlanning]);
 
   useEffect(() => {
     if (!adminProfile?.registered && view !== AppView.AdminRegistration) {
@@ -322,8 +350,8 @@ const App: React.FC = () => {
         }} className="bg-slate-900 p-8 sm:p-12 rounded-[3rem] border border-slate-800 w-full max-w-xl shadow-2xl space-y-10 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-amber-500"></div>
           <div className="relative group mx-auto w-32 h-32">
-            <div className="w-32 h-32 bg-amber-500 rounded-3xl flex items-center justify-center shadow-2xl overflow-hidden">
-              <img src={logoPreview} alt="Logo" className="w-24 h-24 object-contain" />
+            <div className="w-32 h-32 bg-slate-800 rounded-3xl flex items-center justify-center shadow-2xl overflow-hidden border border-slate-700">
+              <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-2" />
             </div>
             <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl cursor-pointer">
               <Upload size={32} className="text-white" />
@@ -372,15 +400,19 @@ const App: React.FC = () => {
       {/* SIDEBAR DESKTOP */}
       <aside className="w-64 lg:w-72 bg-slate-900 border-r border-slate-800 p-6 hidden md:flex flex-col gap-6 sticky top-0 h-screen z-50">
         <div className="flex items-center space-x-3 mb-8">
-          <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg overflow-hidden shrink-0">
-            <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-8 h-8 object-contain" />
+          <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center shadow-lg overflow-hidden shrink-0 border border-slate-700">
+            <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-full h-full object-contain p-1" />
           </div>
-          <span className="text-xl font-black italic uppercase text-white tracking-tighter leading-none">SYSBJJ</span>
+          <div className="flex flex-col">
+            <span className="text-xl font-black italic uppercase text-white tracking-tighter leading-none">SYSBJJ</span>
+            <span className="text-[10px] font-black text-amber-500 italic uppercase tracking-widest mt-0.5">OSS!</span>
+          </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
           {[
             { v: AppView.Dashboard, i: Home, t: "Início" },
             { v: AppView.Classes, i: Layers, t: "Aulas / Turmas" },
+            { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade" },
             { v: AppView.Athletes, i: Users, t: "Alunos" },
             { v: AppView.Attendance, i: CalendarCheck, t: "Chamada" },
             { v: AppView.Finance, i: DollarSign, t: "Financeiro" },
@@ -394,7 +426,32 @@ const App: React.FC = () => {
             </button>
           ))}
         </nav>
-        <button onClick={handleLogout} className="w-full flex items-center space-x-3 p-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-red-500 hover:bg-red-500/10 transition-all mt-auto"><LogOut size={16}/> Sair</button>
+
+        {/* ESPAÇO PARA PATROCINADOR NO MENU */}
+        <div className="mt-6 pt-6 border-t border-slate-800">
+           <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 text-center space-y-3">
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Parceiro Oficial</p>
+              
+              {adminProfile?.monetization?.showAds && adminProfile?.monetization?.adClientId && adminProfile?.monetization?.adSlotId ? (
+                <AdSense 
+                  client={adminProfile.monetization.adClientId} 
+                  slot={adminProfile.monetization.adSlotId} 
+                />
+              ) : (
+                <a href={adminProfile?.monetization?.customBannerLink || "#"} target="_blank" rel="noreferrer" className="block group">
+                  <div className="w-full h-20 bg-slate-900 rounded-xl flex items-center justify-center overflow-hidden border border-slate-700 group-hover:border-amber-500 transition-colors">
+                    {adminProfile?.monetization?.customBannerUrl ? (
+                      <img src={adminProfile.monetization.customBannerUrl} alt="Sponsor" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="text-[10px] font-black text-slate-700 italic uppercase">Espaço Disponível</div>
+                    )}
+                  </div>
+                </a>
+              )}
+           </div>
+        </div>
+
+        <button onClick={handleLogout} className="w-full flex items-center space-x-3 p-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-red-500 hover:bg-red-500/10 transition-all mt-6"><LogOut size={16}/> Sair</button>
       </aside>
 
       <main className="flex-1 p-4 sm:p-8 lg:p-12 overflow-y-auto pb-32 md:pb-12 max-w-full">
@@ -403,7 +460,9 @@ const App: React.FC = () => {
           <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
              <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-slate-900 rounded-2xl border border-slate-800 flex items-center justify-center text-amber-500 shadow-xl"><Medal size={28}/></div>
+                  <div className="w-14 h-14 bg-slate-900 rounded-2xl border border-slate-800 flex items-center justify-center text-amber-500 shadow-xl overflow-hidden">
+                    <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-full h-full object-contain p-1" />
+                  </div>
                   <div>
                     <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{adminProfile?.dojoName}</h2>
                     <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mt-1">Sensei: {user.name} OSS!</p>
@@ -418,6 +477,14 @@ const App: React.FC = () => {
                 <div onClick={() => navigateTo(AppView.Birthdays)} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 border-b-indigo-500 shadow-lg cursor-pointer active:scale-95"><p className="text-[10px] font-black text-indigo-500 uppercase mb-2">B-Days</p><p className="text-3xl font-black text-white">{stats.birthdays.length}</p></div>
              </div>
 
+             {/* ADSENSE DASHBOARD */}
+             {adminProfile?.monetization?.showAds && adminProfile?.monetization?.adClientId && adminProfile?.monetization?.adSlotId && (
+               <AdSense 
+                 client={adminProfile.monetization.adClientId} 
+                 slot={adminProfile.monetization.adSlotId} 
+               />
+             )}
+
              <div className="bg-amber-500 text-slate-950 p-8 sm:p-10 rounded-[3rem] shadow-2xl relative overflow-hidden group border-2 border-amber-400">
                 <Star size={140} className="absolute -bottom-10 -right-10 opacity-10 group-hover:rotate-12 transition-transform duration-1000" />
                 <div className="flex items-center gap-2 mb-4">
@@ -426,6 +493,95 @@ const App: React.FC = () => {
                 </div>
                 <p className="text-sm sm:text-base font-bold italic leading-relaxed whitespace-pre-line relative z-10">"{aiInsight || "Ajustando o kimono... Preparando sua consultoria. OSS!"}"</p>
              </div>
+          </div>
+        )}
+
+        {/* QTS - QUADRO DE TRABALHO SEMANAL */}
+        {view === AppView.QTS && (
+          <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">QTS / Grade Semanal</h2>
+                <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mt-2">Planejamento e Quadro de Aulas da Academia</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <button 
+                  onClick={() => { setForm({ name: '', schedule: '19:00 - 20:30', days: 'Seg, Qua, Sex', color: '#f59e0b' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }}
+                  className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
+                >
+                  <Plus size={16} /> Nova Aula
+                </button>
+                <button 
+                  onClick={() => navigateTo(AppView.Classes)}
+                  className="bg-slate-800 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all border border-slate-700 hover:bg-slate-700"
+                >
+                  <Layers size={16} /> Gestão de Turmas
+                </button>
+              </div>
+            </header>
+
+            <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
+              {['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'].map((day) => (
+                <div key={day} className="space-y-4">
+                  <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 text-center">
+                    <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">{day}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {classes
+                      .filter(c => c.days.toLowerCase().includes(day.toLowerCase().substring(0, 3)))
+                      .sort((a, b) => a.schedule.localeCompare(b.schedule))
+                      .map(cls => (
+                        <div 
+                          key={cls.id} 
+                          className="bg-slate-900 p-4 rounded-2xl border border-slate-800 relative overflow-hidden group hover:border-amber-500/30 transition-all cursor-pointer"
+                          onClick={() => { setForm(cls); setEditId(cls.id); setModalType('class'); setIsModalOpen(true); }}
+                        >
+                          <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: cls.color }}></div>
+                          <p className="text-[9px] font-black text-amber-500 uppercase mb-1">{cls.schedule}</p>
+                          <h5 className="text-xs font-black text-white uppercase italic truncate">{cls.name}</h5>
+                          <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-slate-500 uppercase">
+                            <Users size={10} /> {athletes.filter(a => a.classId === cls.id).length} Alunos
+                          </div>
+                        </div>
+                      ))}
+                    {classes.filter(c => c.days.toLowerCase().includes(day.toLowerCase().substring(0, 3))).length === 0 && (
+                      <div className="p-4 rounded-2xl border border-dashed border-slate-800 text-center opacity-30">
+                        <span className="text-[8px] font-black uppercase text-slate-500">Sem Aulas</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-indigo-500/10 text-indigo-500 rounded-2xl flex items-center justify-center"><FileText size={24}/></div>
+                <div>
+                  <h3 className="text-xl font-black uppercase text-white italic">Planejamento Pedagógico</h3>
+                  <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest">Defina o foco técnico da semana</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Foco da Semana (Ex: Passagem de Guarda)</label>
+                    <textarea 
+                      placeholder="Descreva o planejamento técnico para esta semana..."
+                      value={weeklyPlanning}
+                      onChange={(e) => setWeeklyPlanning(e.target.value)}
+                      className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-medium text-sm focus:ring-2 focus:ring-indigo-500 min-h-[120px] custom-scrollbar"
+                    ></textarea>
+                  </div>
+                </div>
+                <div className="bg-slate-800/30 p-6 rounded-[2rem] border border-slate-700/30 flex flex-col justify-center items-center text-center space-y-4">
+                  <Info size={32} className="text-indigo-400 opacity-50" />
+                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed max-w-[200px]">
+                    O QTS ajuda a manter a constância técnica e a organização da sua academia. OSS!
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -709,7 +865,7 @@ const App: React.FC = () => {
                       <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Logo da Academia</label>
                       <div className="flex flex-col sm:flex-row gap-6 items-center">
                         <div className="w-32 h-32 bg-slate-800 rounded-3xl border border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-2xl">
-                          <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Preview" className="w-24 h-24 object-contain" />
+                          <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Preview" className="w-full h-full object-contain p-2" />
                         </div>
                         <div className="flex-1 space-y-4 w-full">
                           <label className="block w-full bg-amber-500 text-slate-950 font-black p-5 rounded-2xl text-center uppercase italic text-xs cursor-pointer hover:bg-white transition-all active:scale-95 shadow-lg">
@@ -735,6 +891,81 @@ const App: React.FC = () => {
                     </div>
                   </div>
                </div>
+               <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6 md:col-span-2">
+                  <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-3xl flex items-center justify-center"><DollarSign size={32}/></div>
+                  <div><h3 className="text-xl font-black uppercase text-white italic">Monetização & Anúncios</h3><p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Configure espaços publicitários para gerar renda.</p></div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-slate-800 rounded-2xl border border-slate-700">
+                        <span className="text-[10px] font-black uppercase text-white">Ativar Espaço de Anúncio</span>
+                        <button 
+                          onClick={() => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), showAds: !prev.monetization?.showAds}} : null)}
+                          className={`w-12 h-6 rounded-full transition-colors relative ${adminProfile?.monetization?.showAds ? 'bg-emerald-500' : 'bg-slate-600'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${adminProfile?.monetization?.showAds ? 'left-7' : 'left-1'}`}></div>
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Banner do Patrocinador (URL)</label>
+                        <input 
+                          type="text" 
+                          placeholder="https://imagem-do-anuncio.png"
+                          value={adminProfile?.monetization?.customBannerUrl || ''} 
+                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), customBannerUrl: e.target.value}} : null)}
+                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-emerald-500" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Link do Anúncio</label>
+                        <input 
+                          type="text" 
+                          placeholder="https://site-do-parceiro.com"
+                          value={adminProfile?.monetization?.customBannerLink || ''} 
+                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), customBannerLink: e.target.value}} : null)}
+                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-emerald-500" 
+                        />
+                      </div>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
+                        Dica: Você pode vender este espaço para lojas locais ou usar o Google AdSense.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-slate-800 space-y-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center"><LayoutDashboard size={20}/></div>
+                      <h4 className="text-sm font-black uppercase text-white italic">Google AdSense</h4>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Publisher ID (ca-pub-xxx)</label>
+                        <input 
+                          type="text" 
+                          placeholder="ca-pub-xxxxxxxxxxxxxxxx"
+                          value={adminProfile?.monetization?.adClientId || ''} 
+                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), adClientId: e.target.value}} : null)}
+                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-blue-500" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Ad Slot ID</label>
+                        <input 
+                          type="text" 
+                          placeholder="1234567890"
+                          value={adminProfile?.monetization?.adSlotId || ''} 
+                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), adSlotId: e.target.value}} : null)}
+                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-blue-500" 
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
+                      Para usar o AdSense, insira seu ID de Editor e o ID do bloco de anúncios. Os anúncios aparecerão no Dashboard.
+                    </p>
+                  </div>
+               </div>
             </div>
           </div>
         )}
@@ -743,6 +974,7 @@ const App: React.FC = () => {
       {/* BOTTOM NAV MOBILE */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/98 backdrop-blur-3xl border-t border-slate-800 flex justify-around p-4 pb-8 z-[60] shadow-[0_-20px_60px_rgba(0,0,0,0.8)]">
          <button onClick={() => navigateTo(AppView.Dashboard)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Dashboard ? 'text-amber-500' : 'text-slate-600'}`}><Home size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Início</span></button>
+         <button onClick={() => navigateTo(AppView.QTS)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.QTS ? 'text-amber-500' : 'text-slate-600'}`}><CalendarIcon size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Grade</span></button>
          <button onClick={() => navigateTo(AppView.Classes)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Classes ? 'text-amber-500' : 'text-slate-600'}`}><Layers size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Aulas</span></button>
          <button onClick={() => navigateTo(AppView.Timer)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Timer ? 'text-amber-500' : 'text-slate-600'}`}><Clock size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Timer</span></button>
          <button onClick={() => setIsMobileMenuOpen(true)} className="flex flex-col items-center gap-1.5 text-slate-600 active:text-amber-500"><Menu size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Mais</span></button>
@@ -781,9 +1013,36 @@ const App: React.FC = () => {
                 {modalType === 'class' && (
                   <>
                     <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Nome da Turma</label><input type="text" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Iniciantes, No-Gi, Kids..." className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Horário</label><input type="text" value={form.schedule || ''} onChange={e => setForm({...form, schedule: e.target.value})} placeholder="19:00 - 20:30" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Dias</label><input type="text" value={form.days || ''} onChange={e => setForm({...form, days: e.target.value})} placeholder="Seg, Qua, Sex" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Horário</label>
+                      <input type="text" value={form.schedule || ''} onChange={e => setForm({...form, schedule: e.target.value})} placeholder="19:00 - 20:30" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" />
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Dias da Semana</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(day => {
+                          const isSelected = form.days?.includes(day);
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => {
+                                const currentDays = form.days ? form.days.split(', ').filter(Boolean) : [];
+                                let newDays;
+                                if (isSelected) {
+                                  newDays = currentDays.filter(d => d !== day);
+                                } else {
+                                  newDays = [...currentDays, day];
+                                }
+                                setForm({ ...form, days: newDays.join(', ') });
+                              }}
+                              className={`px-4 py-3 rounded-xl font-black text-[10px] uppercase transition-all border ${isSelected ? 'bg-amber-500 border-amber-400 text-slate-950' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
+                            >
+                              {day}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </>
                 )}
@@ -820,10 +1079,14 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-slate-950/99 z-[100] flex flex-col p-8 pt-24 animate-in fade-in slide-in-from-bottom-5 backdrop-blur-3xl overflow-hidden">
           <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-10 right-10 bg-slate-800 text-white p-5 rounded-3xl shadow-2xl z-[110]"><X size={36}/></button>
           <div className="flex-1 overflow-y-auto custom-scrollbar pb-16 text-center">
-            <h2 className="text-4xl font-black italic uppercase text-white mb-10 tracking-tighter">SYSBJJ</h2>
+            <div className="flex flex-col items-center mb-10">
+              <h2 className="text-4xl font-black italic uppercase text-white tracking-tighter">SYSBJJ</h2>
+              <span className="text-sm font-black text-amber-500 italic uppercase tracking-[0.3em] mt-1">OSS!</span>
+            </div>
             <div className="grid grid-cols-1 gap-4">
               {[
                 { v: AppView.Dashboard, i: Home, t: "Painel Principal", color: "text-amber-500" },
+                { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade Semanal", color: "text-amber-500" },
                 { v: AppView.Classes, i: Layers, t: "Aulas / Turmas", color: "text-amber-500" },
                 { v: AppView.Athletes, i: Users, t: "Alunos / Matrículas", color: "text-amber-500" },
                 { v: AppView.Attendance, i: CalendarCheck, t: "Lista de Chamada", color: "text-emerald-500" },
