@@ -6,11 +6,11 @@ import {
   Edit, ArrowRight, Clock, Database, Download, FileJson, 
   ShieldAlert, RotateCcw, VolumeX, Fingerprint, Calendar as CalendarIcon, 
   Info, Bell, Cake, ChevronRight, Play, Pause, Trash2, Upload, LayoutDashboard,
-  Smartphone, UserCheck, Layers, Filter, FileText, Printer, Save
+  Smartphone, UserCheck, Layers, Filter, FileText, Printer, Save, Camera
 } from 'lucide-react';
-import { Athlete, Transaction, AppView, Belt, AdminProfile, TrainingClass } from './types';
+import { Athlete, Transaction, AppView, Belt, AdminProfile, TrainingClass, AgeCategory, QTSItem } from './types';
 import { getDojoInsights } from './geminiService';
-import { generateFinancialReport, generateBirthdayMural } from './pdfService';
+import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF } from './pdfService';
 
 const BELT_COLORS: Record<string, string> = {
   'Branca': '#f8fafc',
@@ -24,23 +24,27 @@ const BELT_COLORS: Record<string, string> = {
   'Preta': '#0f172a'
 };
 
-const DEFAULT_LOGO = "https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80&w=512&h=512";
+const DEFAULT_LOGO = "https://images.unsplash.com/photo-1552072092-7f9b8d63efcb?auto=format&fit=crop&q=80&w=512&h=512";
 
-const BeltBadge: React.FC<{ belt: Belt; degrees: number }> = ({ belt, degrees }) => (
-  <div className="flex items-center gap-2">
-    <div 
-      className="h-4 w-12 sm:h-5 sm:w-16 rounded shadow-inner border border-slate-800 flex relative overflow-hidden shrink-0"
-      style={{ backgroundColor: BELT_COLORS[belt] || '#fff' }}
-    >
-      <div className={`absolute right-0 top-0 bottom-0 w-4 sm:w-5 ${belt === 'Preta' ? 'bg-red-600' : 'bg-slate-950'} flex items-center justify-center gap-0.5 px-0.5`}>
-        {Array.from({ length: Math.min(degrees, 4) }).map((_, i) => (
-          <div key={i} className="w-[1px] sm:w-[1.5px] h-2 sm:h-3 bg-white" />
-        ))}
+const BeltBadge: React.FC<{ belt: Belt; degrees: number }> = ({ belt, degrees }) => {
+  const safeDegrees = Math.max(0, Math.min(Number(degrees) || 0, 4));
+  
+  return (
+    <div className="flex items-center gap-2">
+      <div 
+        className="h-4 w-12 sm:h-5 sm:w-16 rounded shadow-inner border border-slate-800 flex relative overflow-hidden shrink-0"
+        style={{ backgroundColor: BELT_COLORS[belt] || '#fff' }}
+      >
+        <div className={`absolute right-0 top-0 bottom-0 w-4 sm:w-5 ${belt === 'Preta' ? 'bg-red-600' : 'bg-slate-950'} flex items-center justify-center gap-0.5 px-0.5`}>
+          {Array.from({ length: safeDegrees }).map((_, i) => (
+            <div key={i} className="w-[1px] sm:w-[1.5px] h-2 sm:h-3 bg-white" />
+          ))}
+        </div>
       </div>
+      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-tighter text-slate-400 truncate">{belt}</span>
     </div>
-    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-tighter text-slate-400 truncate">{belt}</span>
-  </div>
-);
+  );
+};
 
 const PWAInstallPrompt: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -128,22 +132,26 @@ const PWAInstallPrompt: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   );
 };
 
-const AdSense: React.FC<{ client?: string; slot?: string }> = ({ client, slot }) => {
+const AdSense: React.FC<{ client?: string; slot?: string }> = ({ 
+  client = "ca-pub-9629326132800108", 
+  slot = "3020008361" 
+}) => {
   useEffect(() => {
-    try {
-      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-    } catch (e) {
-      console.error('AdSense error:', e);
-    }
-  }, []);
-
-  if (!client || !slot) return null;
+    const timer = setTimeout(() => {
+      try {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      } catch (e) {
+        console.error('AdSense error:', e);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [client, slot]);
 
   return (
-    <div className="w-full overflow-hidden my-4 flex justify-center">
+    <div className="w-full overflow-hidden my-4 flex justify-center min-h-[90px]">
       <ins
         className="adsbygoogle"
-        style={{ display: 'block' }}
+        style={{ display: 'block', minWidth: '250px' }}
         data-ad-client={client}
         data-ad-slot={slot}
         data-ad-format="auto"
@@ -161,19 +169,171 @@ const formatTime = (seconds: number) => {
 
 type AlarmType = 'buzzer' | 'bell' | 'MATE' | 'FIM';
 
+const PhotoCapture: React.FC<{ value?: string; onChange: (val: string) => void }> = ({ value, onChange }) => {
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsCameraOpen(true);
+      }
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      alert("Não foi possível acessar a câmera. Verifique as permissões.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      setIsCameraOpen(false);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      // Reduzir tamanho para economizar localStorage
+      const maxWidth = 400;
+      const scale = maxWidth / video.videoWidth;
+      canvas.width = maxWidth;
+      canvas.height = video.videoHeight * scale;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Qualidade reduzida para 0.7 para economizar espaço
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        onChange(dataUrl);
+        stopCamera();
+      }
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 400;
+          const scale = maxWidth / img.width;
+          canvas.width = maxWidth;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            onChange(canvas.toDataURL('image/jpeg', 0.7));
+          }
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="relative w-32 h-32 mx-auto group">
+        <div className="w-32 h-32 bg-slate-800 rounded-3xl flex items-center justify-center shadow-2xl overflow-hidden border border-slate-700">
+          {value ? (
+            <img src={value} alt="Atleta" className="w-full h-full object-cover" />
+          ) : (
+            <Users size={48} className="text-slate-600" />
+          )}
+        </div>
+        <div className="absolute -bottom-2 -right-2 flex gap-2">
+          <label className="p-2 bg-amber-500 text-slate-950 rounded-xl shadow-lg cursor-pointer hover:bg-amber-400 transition-all">
+            <Upload size={16} />
+            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+          </label>
+          <button onClick={startCamera} className="p-2 bg-slate-700 text-white rounded-xl shadow-lg hover:bg-slate-600 transition-all">
+            <Camera size={16} />
+          </button>
+        </div>
+      </div>
+
+      {isCameraOpen && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex flex-col items-center justify-center p-4">
+          <div className="relative w-full max-w-md aspect-square bg-black rounded-[2rem] overflow-hidden shadow-2xl border border-slate-800">
+            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
+          <div className="flex gap-4 mt-8">
+            <button onClick={stopCamera} className="px-8 py-4 bg-slate-800 text-white rounded-2xl font-black uppercase text-xs tracking-widest">Cancelar</button>
+            <button onClick={capturePhoto} className="px-8 py-4 bg-amber-500 text-slate-950 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2 shadow-xl">
+              <Camera size={18} /> Capturar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const STORAGE_KEY_ATHLETES = 'sistemabjj_athletes_prod';
   const STORAGE_KEY_TRANSACTIONS = 'sistemabjj_transactions_prod';
   const STORAGE_KEY_ADMIN = 'sistemabjj_admin_prod';
   const STORAGE_KEY_CLASSES = 'sistemabjj_classes_prod';
+  const STORAGE_KEY_QTS = 'sistemabjj_qts_prod';
   const STORAGE_KEY_PLANNING = 'sistemabjj_planning_prod';
 
   const [athletes, setAthletes] = useState<Athlete[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ATHLETES) || '[]'));
   const [transactions, setTransactions] = useState<Transaction[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]'));
   const [classes, setClasses] = useState<TrainingClass[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_CLASSES) || '[]'));
+  const [qtsItems, setQtsItems] = useState<QTSItem[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_QTS) || '[]'));
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ADMIN) || 'null'));
   const [weeklyPlanning, setWeeklyPlanning] = useState<string>(() => localStorage.getItem(STORAGE_KEY_PLANNING) || '');
   const [logoPreview, setLogoPreview] = useState<string>(adminProfile?.logoUrl || DEFAULT_LOGO);
+
+  const getIBJJFCategory = (birthDate: string): AgeCategory => {
+    if (!birthDate) return 'Adulto';
+    const birthYear = new Date(birthDate).getFullYear();
+    const currentYear = new Date().getFullYear();
+    const age = currentYear - birthYear;
+
+    if (age < 6) return 'Mirim';
+    if (age < 12) return 'Infantil';
+    if (age < 16) return 'Infanto-Juvenil';
+    if (age < 18) return 'Juvenil';
+    if (age < 30) return 'Adulto';
+    if (age < 36) return 'Master 1';
+    if (age < 41) return 'Master 2';
+    if (age < 46) return 'Master 3';
+    if (age < 51) return 'Master 4';
+    if (age < 56) return 'Master 5';
+    if (age < 61) return 'Master 6';
+    return 'Master 7';
+  };
+
+  const isKidsCategory = (category: AgeCategory) => {
+    return ['Mirim', 'Infantil', 'Infanto-Juvenil'].includes(category);
+  };
+
+  const getIBJJFWeightCategory = (weight: number, category: AgeCategory): string => {
+    if (!weight) return 'N/A';
+    
+    // Simplified Adult Male Gi Categories
+    if (weight <= 57.5) return 'Galo';
+    if (weight <= 64.0) return 'Pluma';
+    if (weight <= 70.0) return 'Pena';
+    if (weight <= 76.0) return 'Leve';
+    if (weight <= 82.3) return 'Médio';
+    if (weight <= 88.3) return 'Meio-Pesado';
+    if (weight <= 94.3) return 'Pesado';
+    if (weight <= 100.5) return 'Super-Pesado';
+    return 'Pesadíssimo';
+  };
 
   // UI State
   const [user, setUser] = useState<{name: string, role: string} | null>(() => {
@@ -183,11 +343,14 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.Login);
   const [aiInsight, setAiInsight] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<'athlete' | 'transaction' | 'class'>('athlete');
+  const [modalType, setModalType] = useState<'athlete' | 'transaction' | 'class' | 'qts'>('athlete');
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<any>({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
+  const [athleteTab, setAthleteTab] = useState<'general' | 'competition'>('general');
+  const [competitionMode, setCompetitionMode] = useState(false);
+  const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
 
   // Timer State
   const [timeLeft, setTimeLeft] = useState(300);
@@ -200,14 +363,35 @@ const App: React.FC = () => {
   const alarmIntervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  useEffect(() => {
+    if (adminProfile && (!adminProfile.monetization?.adClientId || !adminProfile.monetization?.adSlotId)) {
+      setAdminProfile(prev => prev ? {
+        ...prev,
+        monetization: {
+          ...(prev.monetization || { showAds: true }),
+          adClientId: prev.monetization?.adClientId || 'ca-pub-9629326132800108',
+          adSlotId: prev.monetization?.adSlotId || '3020008361'
+        }
+      } : null);
+    }
+  }, [adminProfile]);
+
   // Persistência
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_ATHLETES, JSON.stringify(athletes));
-    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(transactions));
-    localStorage.setItem(STORAGE_KEY_CLASSES, JSON.stringify(classes));
-    localStorage.setItem(STORAGE_KEY_PLANNING, weeklyPlanning);
-    if (adminProfile) localStorage.setItem(STORAGE_KEY_ADMIN, JSON.stringify(adminProfile));
-  }, [athletes, transactions, classes, adminProfile, weeklyPlanning]);
+    try {
+      localStorage.setItem(STORAGE_KEY_ATHLETES, JSON.stringify(athletes));
+      localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(transactions));
+      localStorage.setItem(STORAGE_KEY_CLASSES, JSON.stringify(classes));
+      localStorage.setItem(STORAGE_KEY_QTS, JSON.stringify(qtsItems));
+      localStorage.setItem(STORAGE_KEY_PLANNING, weeklyPlanning);
+      if (adminProfile) localStorage.setItem(STORAGE_KEY_ADMIN, JSON.stringify(adminProfile));
+    } catch (err) {
+      console.error("Erro ao salvar no localStorage:", err);
+      if (err instanceof Error && err.name === 'QuotaExceededError') {
+        alert("O armazenamento está cheio! Tente remover fotos ou registros antigos.");
+      }
+    }
+  }, [athletes, transactions, classes, qtsItems, adminProfile, weeklyPlanning]);
 
   useEffect(() => {
     if (!adminProfile?.registered && view !== AppView.AdminRegistration) {
@@ -342,7 +526,12 @@ const App: React.FC = () => {
             dojoName: f.get('dojoName'), 
             logoUrl: logoPreview,
             password: '', 
-            registered: true 
+            registered: true,
+            monetization: {
+              showAds: true,
+              adClientId: 'ca-pub-9629326132800108',
+              adSlotId: '3020008361'
+            }
           }; 
           setAdminProfile(newAdmin as any); 
           setUser({ name: newAdmin.name as string, role: 'admin' });
@@ -430,24 +619,12 @@ const App: React.FC = () => {
         {/* ESPAÇO PARA PATROCINADOR NO MENU */}
         <div className="mt-6 pt-6 border-t border-slate-800">
            <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 text-center space-y-3">
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Parceiro Oficial</p>
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Propagandas</p>
               
-              {adminProfile?.monetization?.showAds && adminProfile?.monetization?.adClientId && adminProfile?.monetization?.adSlotId ? (
-                <AdSense 
-                  client={adminProfile.monetization.adClientId} 
-                  slot={adminProfile.monetization.adSlotId} 
-                />
-              ) : (
-                <a href={adminProfile?.monetization?.customBannerLink || "#"} target="_blank" rel="noreferrer" className="block group">
-                  <div className="w-full h-20 bg-slate-900 rounded-xl flex items-center justify-center overflow-hidden border border-slate-700 group-hover:border-amber-500 transition-colors">
-                    {adminProfile?.monetization?.customBannerUrl ? (
-                      <img src={adminProfile.monetization.customBannerUrl} alt="Sponsor" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="text-[10px] font-black text-slate-700 italic uppercase">Espaço Disponível</div>
-                    )}
-                  </div>
-                </a>
-              )}
+              <AdSense 
+                client="ca-pub-9629326132800108" 
+                slot="3020008361" 
+              />
            </div>
         </div>
 
@@ -520,46 +697,84 @@ const App: React.FC = () => {
               </div>
             </header>
 
-            <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
-              {['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'].map((day) => (
-                <div key={day} className="space-y-4">
-                  <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 text-center">
-                    <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">{day}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {classes
-                      .filter(c => c.days.toLowerCase().includes(day.toLowerCase().substring(0, 3)))
-                      .sort((a, b) => a.schedule.localeCompare(b.schedule))
-                      .map(cls => (
-                        <div 
-                          key={cls.id} 
-                          className="bg-slate-900 p-4 rounded-2xl border border-slate-800 relative overflow-hidden group hover:border-amber-500/30 transition-all cursor-pointer"
-                          onClick={() => { setForm(cls); setEditId(cls.id); setModalType('class'); setIsModalOpen(true); }}
-                        >
-                          <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: cls.color }}></div>
-                          <p className="text-[9px] font-black text-amber-500 uppercase mb-1">{cls.schedule}</p>
-                          <h5 className="text-xs font-black text-white uppercase italic truncate">{cls.name}</h5>
-                          <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-slate-500 uppercase">
-                            <Users size={10} /> {athletes.filter(a => a.classId === cls.id).length} Alunos
+                      <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
+                        {weeklyPlanning && (
+                          <div className="col-span-full bg-indigo-500/10 border border-indigo-500/20 p-6 rounded-[2rem] mb-4 flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+                            <div className="w-12 h-12 bg-indigo-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-lg">
+                              <Star size={24} />
+                            </div>
+                            <div>
+                              <h4 className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">Foco Técnico da Semana</h4>
+                              <p className="text-sm font-black text-white uppercase italic leading-tight">{weeklyPlanning}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    {classes.filter(c => c.days.toLowerCase().includes(day.toLowerCase().substring(0, 3))).length === 0 && (
-                      <div className="p-4 rounded-2xl border border-dashed border-slate-800 text-center opacity-30">
-                        <span className="text-[8px] font-black uppercase text-slate-500">Sem Aulas</span>
+                        )}
+                        {['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'].map((day) => (
+                          <div key={day} className="space-y-4">
+                            <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 text-center">
+                              <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">{day}</span>
+                            </div>
+                            <div className="space-y-3">
+                              {qtsItems
+                                .filter(i => i.day === day.substring(0, 3))
+                                .sort((a, b) => a.schedule.localeCompare(b.schedule))
+                                .map(item => {
+                                  const cls = classes.find(c => c.id === item.classId);
+                                  return (
+                                    <div 
+                                      key={item.id} 
+                                      className="bg-slate-900 p-4 rounded-2xl border border-slate-800 relative overflow-hidden group hover:border-amber-500/30 transition-all cursor-pointer"
+                                      onClick={() => { setForm(item); setEditId(item.id); setModalType('qts'); setIsModalOpen(true); }}
+                                    >
+                                      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: cls?.color || '#f59e0b' }}></div>
+                                      <p className="text-[9px] font-black text-amber-500 uppercase mb-1">{item.schedule}</p>
+                                      <h5 className="text-xs font-black text-white uppercase italic truncate">{cls?.name || 'Aula'}</h5>
+                                      {item.topic && (
+                                        <p className="text-[8px] font-bold text-indigo-400 uppercase mt-1 italic line-clamp-2">
+                                          {item.topic}
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              <button 
+                                onClick={() => { setForm({ classId: '', schedule: '19:00', day: day.substring(0, 3) }); setEditId(null); setModalType('qts'); setIsModalOpen(true); }}
+                                className="w-full p-3 rounded-xl border border-dashed border-slate-800 text-center opacity-30 hover:opacity-100 transition-all group"
+                              >
+                                <Plus size={12} className="mx-auto text-slate-500 group-hover:text-amber-500" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
 
             <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-indigo-500/10 text-indigo-500 rounded-2xl flex items-center justify-center"><FileText size={24}/></div>
-                <div>
-                  <h3 className="text-xl font-black uppercase text-white italic">Planejamento Pedagógico</h3>
-                  <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest">Defina o foco técnico da semana</p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-indigo-500/10 text-indigo-500 rounded-2xl flex items-center justify-center"><FileText size={24}/></div>
+                  <div>
+                    <h3 className="text-xl font-black uppercase text-white italic">Planejamento Pedagógico</h3>
+                    <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest">Defina o foco técnico da semana</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => {
+                      // Persist planning in admin profile if needed or just alert for now
+                      // In this app, we could add it to adminProfile
+                      setAdminProfile(prev => prev ? {...prev, weeklyPlanning} : null);
+                      alert("Planejamento salvo com sucesso! OSS!");
+                    }}
+                    className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
+                  >
+                    <Save size={16} /> Salvar
+                  </button>
+                  <button 
+                    onClick={() => generateQTSPDF(qtsItems, classes, adminProfile, weeklyPlanning)}
+                    className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all border border-slate-700"
+                  >
+                    <Printer size={16} /> Imprimir QTS
+                  </button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -589,22 +804,20 @@ const App: React.FC = () => {
         {view === AppView.Classes && (
            <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto">
              <header className="flex justify-between items-center gap-4">
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Aulas / Turmas</h2>
-                <button onClick={() => { setForm({ name: '', schedule: '19:00 - 20:30', days: 'Seg, Qua, Sex', color: '#f59e0b' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }} className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg active:scale-95 transition-all"><Plus size={18} /> Nova Turma</button>
+                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Turmas</h2>
+                <button onClick={() => { setForm({ name: '', color: '#f59e0b' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }} className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg active:scale-95 transition-all"><Plus size={18} /> Nova Turma</button>
              </header>
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {classes.length > 0 ? classes.map(cls => (
                    <div key={cls.id} className="bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] relative overflow-hidden group shadow-xl hover:border-amber-500/50 transition-all">
                       <div className="absolute top-0 right-0 w-2 h-full" style={{ backgroundColor: cls.color }}></div>
-                      <h4 className="text-xl font-black uppercase italic text-white mb-2">{cls.name}</h4>
-                      <p className="text-[10px] font-black uppercase text-amber-500 tracking-widest mb-1">{cls.schedule}</p>
-                      <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-6">{cls.days}</p>
+                      <h4 className="text-xl font-black uppercase italic text-white mb-6">{cls.name}</h4>
                       <div className="flex items-center justify-between">
                          <div className="flex items-center gap-2 text-slate-400">
                             <Users size={16}/>
                             <span className="text-[10px] font-black uppercase">{athletes.filter(a => a.classId === cls.id).length} Alunos</span>
                          </div>
-                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <div className="flex gap-2">
                             <button onClick={() => { setForm(cls); setEditId(cls.id); setModalType('class'); setIsModalOpen(true); }} className="p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"><Edit size={16}/></button>
                             <button onClick={() => { if(confirm("Deseja apagar esta turma?")) setClasses(prev => prev.filter(c => c.id !== cls.id)); }} className="p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
                          </div>
@@ -623,19 +836,81 @@ const App: React.FC = () => {
         {/* ALUNOS */}
         {view === AppView.Athletes && (
            <div className="space-y-8 animate-in fade-in max-w-6xl mx-auto">
-             <header className="flex justify-between items-center gap-4">
+             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Guerreiros</h2>
-                <button onClick={() => { setForm({ name: '', belt: 'Branca', paymentDay: 10, category: 'Adulto', degrees: 0, classId: '', birthDate: '', status: 'active' }); setEditId(null); setModalType('athlete'); setIsModalOpen(true); }} className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg active:scale-95 transition-all"><Plus size={18} /> Novo Atleta</button>
+                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+                   <button 
+                     onClick={() => {
+                       setCompetitionMode(!competitionMode);
+                       setSelectedAthletes([]);
+                     }} 
+                     className={`flex-1 sm:flex-none px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all ${competitionMode ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.4)]' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}
+                   >
+                     <Trophy size={18} /> {competitionMode ? 'Cancelar Seleção' : 'Modo Competição'}
+                   </button>
+                   
+                   {competitionMode && selectedAthletes.length > 0 && (
+                     <button 
+                       onClick={() => {
+                         const selected = athletes.filter(a => selectedAthletes.includes(a.id));
+                         generateCompetitionPDF(selected, adminProfile);
+                       }}
+                       className="flex-1 sm:flex-none bg-emerald-500 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all animate-in zoom-in"
+                     >
+                       <Printer size={18} /> Gerar PDF ({selectedAthletes.length})
+                     </button>
+                   )}
+
+                   {!competitionMode && (
+                     <button onClick={() => { setForm({ name: '', belt: 'Branca', paymentDay: 10, category: 'Adulto', degrees: 0, classId: '', birthDate: '', status: 'active', photoUrl: '' }); setEditId(null); setModalType('athlete'); setAthleteTab('general'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
+                       <Plus size={18} /> Novo Atleta
+                     </button>
+                   )}
+                </div>
              </header>
              <div className="grid grid-cols-1 gap-3">
                 {athletes.length > 0 ? athletes.map(ath => (
-                   <div key={ath.id} className="bg-slate-900 border border-slate-800 p-6 rounded-[2.5rem] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl hover:border-slate-700 transition-all">
+                   <div 
+                     key={ath.id} 
+                     onClick={() => {
+                       if (competitionMode) {
+                         setSelectedAthletes(prev => 
+                           prev.includes(ath.id) ? prev.filter(id => id !== ath.id) : [...prev, ath.id]
+                         );
+                       }
+                     }}
+                     className={`bg-slate-900 border p-6 rounded-[2.5rem] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl transition-all ${competitionMode ? 'cursor-pointer' : ''} ${competitionMode && selectedAthletes.includes(ath.id) ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-800 hover:border-slate-700'}`}
+                   >
                         <div className="flex items-center gap-4">
-                           <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center font-black text-amber-500 italic shadow-inner">OSS</div>
+                           {competitionMode && (
+                             <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${selectedAthletes.includes(ath.id) ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-700 text-transparent'}`}>
+                               <CheckCircle2 size={16} />
+                             </div>
+                           )}
+                           <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center font-black text-amber-500 italic shadow-inner overflow-hidden shrink-0">
+                             {ath.photoUrl ? (
+                               <img src={ath.photoUrl} alt={ath.name} className="w-full h-full object-cover" />
+                             ) : (
+                               "OSS"
+                             )}
+                           </div>
                            <div className="overflow-hidden">
                               <p className="font-black uppercase text-sm italic truncate text-white">{ath.name}</p>
                               <div className="flex items-center gap-3">
                                 <BeltBadge belt={ath.belt} degrees={ath.degrees} />
+                                <span className="text-[8px] font-black uppercase text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+                                   {ath.category}
+                                </span>
+                                {ath.weightCategory && (
+                                   <span className="text-[8px] font-black uppercase text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full italic">
+                                      {ath.weightCategory}
+                                   </span>
+                                )}
+                                {ath.weight && (
+                                   <span className="text-[8px] font-black uppercase text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+                                      {ath.weight} kg
+                                   </span>
+                                )}
                                 {ath.classId && (
                                    <span className="text-[8px] font-black uppercase text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full">
                                       {classes.find(c => c.id === ath.classId)?.name}
@@ -646,8 +921,8 @@ const App: React.FC = () => {
                         </div>
                         <div className="flex items-center justify-between sm:justify-end gap-4">
                            <div className="flex gap-2">
-                              <button onClick={() => { setForm(ath); setEditId(ath.id); setModalType('athlete'); setIsModalOpen(true); }} className="p-4 bg-slate-800 rounded-xl text-slate-400 hover:text-amber-500 transition-all active:scale-90"><Edit size={20} /></button>
-                              <button onClick={() => { if(confirm("Deseja remover este atleta?")) setAthletes(prev => prev.filter(a => a.id !== ath.id)); }} className="p-4 bg-slate-800 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-90"><Trash2 size={20} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setForm(ath); setEditId(ath.id); setModalType('athlete'); setAthleteTab('general'); setIsModalOpen(true); }} className="p-4 bg-slate-800 rounded-xl text-slate-400 hover:text-amber-500 transition-all active:scale-90"><Edit size={20} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); if(confirm("Deseja remover este atleta?")) setAthletes(prev => prev.filter(a => a.id !== ath.id)); }} className="p-4 bg-slate-800 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-90"><Trash2 size={20} /></button>
                            </div>
                         </div>
                    </div>
@@ -685,10 +960,19 @@ const App: React.FC = () => {
                    const isPresentToday = ath.lastAttendance === new Date().toISOString().split('T')[0];
                    return (
                      <button key={ath.id} onClick={() => !isPresentToday && markAttendance(ath.id)} className={`p-7 rounded-[2.5rem] border transition-all flex items-center justify-between text-left group shadow-lg ${isPresentToday ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 active:scale-95'}`}>
-                        <div className="overflow-hidden pr-4">
-                          <p className={`font-black uppercase italic text-sm truncate ${isPresentToday ? 'text-emerald-500' : 'text-white'}`}>{ath.name}</p>
-                          <div className="flex items-center gap-2">
-                             <BeltBadge belt={ath.belt} degrees={ath.degrees} />
+                        <div className="flex items-center gap-4 overflow-hidden pr-4">
+                          <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center font-black text-amber-500 italic shadow-inner overflow-hidden shrink-0">
+                            {ath.photoUrl ? (
+                              <img src={ath.photoUrl} alt={ath.name} className="w-full h-full object-cover" />
+                            ) : (
+                              "OSS"
+                            )}
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className={`font-black uppercase italic text-sm truncate ${isPresentToday ? 'text-emerald-500' : 'text-white'}`}>{ath.name}</p>
+                            <div className="flex items-center gap-2">
+                               <BeltBadge belt={ath.belt} degrees={ath.degrees} />
+                            </div>
                           </div>
                         </div>
                         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shrink-0 ${isPresentToday ? 'bg-emerald-500 text-white shadow-xl' : 'bg-slate-800 text-slate-700'}`}>
@@ -792,6 +1076,13 @@ const App: React.FC = () => {
                  {stats.ranking.length > 0 ? stats.ranking.map((ath, idx) => (
                    <div key={ath.id} className={`p-8 rounded-[3rem] border flex items-center gap-6 shadow-2xl transition-all ${idx === 0 ? 'bg-amber-500 border-amber-400 text-slate-950 scale-[1.03]' : 'bg-slate-900 border-slate-800 text-white'}`}>
                       <div className={`text-4xl font-black italic w-16 text-center shrink-0 ${idx === 0 ? 'text-slate-950' : 'text-slate-700'}`}>{idx + 1}º</div>
+                      <div className="w-16 h-16 bg-slate-800/50 rounded-2xl flex items-center justify-center font-black text-amber-500 italic shadow-inner overflow-hidden shrink-0">
+                        {ath.photoUrl ? (
+                          <img src={ath.photoUrl} alt={ath.name} className="w-full h-full object-cover" />
+                        ) : (
+                          "OSS"
+                        )}
+                      </div>
                       <div className="flex-1 overflow-hidden">
                          <p className="font-black uppercase italic text-lg truncate leading-none mb-1">{ath.name}</p>
                          <p className={`text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}>{ath.attendanceCount} TREINOS</p>
@@ -891,81 +1182,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                </div>
-               <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6 md:col-span-2">
-                  <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-3xl flex items-center justify-center"><DollarSign size={32}/></div>
-                  <div><h3 className="text-xl font-black uppercase text-white italic">Monetização & Anúncios</h3><p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Configure espaços publicitários para gerar renda.</p></div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 bg-slate-800 rounded-2xl border border-slate-700">
-                        <span className="text-[10px] font-black uppercase text-white">Ativar Espaço de Anúncio</span>
-                        <button 
-                          onClick={() => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), showAds: !prev.monetization?.showAds}} : null)}
-                          className={`w-12 h-6 rounded-full transition-colors relative ${adminProfile?.monetization?.showAds ? 'bg-emerald-500' : 'bg-slate-600'}`}
-                        >
-                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${adminProfile?.monetization?.showAds ? 'left-7' : 'left-1'}`}></div>
-                        </button>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Banner do Patrocinador (URL)</label>
-                        <input 
-                          type="text" 
-                          placeholder="https://imagem-do-anuncio.png"
-                          value={adminProfile?.monetization?.customBannerUrl || ''} 
-                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), customBannerUrl: e.target.value}} : null)}
-                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-emerald-500" 
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Link do Anúncio</label>
-                        <input 
-                          type="text" 
-                          placeholder="https://site-do-parceiro.com"
-                          value={adminProfile?.monetization?.customBannerLink || ''} 
-                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), customBannerLink: e.target.value}} : null)}
-                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-emerald-500" 
-                        />
-                      </div>
-                      <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
-                        Dica: Você pode vender este espaço para lojas locais ou usar o Google AdSense.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-slate-800 space-y-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-500/10 text-blue-500 rounded-xl flex items-center justify-center"><LayoutDashboard size={20}/></div>
-                      <h4 className="text-sm font-black uppercase text-white italic">Google AdSense</h4>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Publisher ID (ca-pub-xxx)</label>
-                        <input 
-                          type="text" 
-                          placeholder="ca-pub-xxxxxxxxxxxxxxxx"
-                          value={adminProfile?.monetization?.adClientId || ''} 
-                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), adClientId: e.target.value}} : null)}
-                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-blue-500" 
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Ad Slot ID</label>
-                        <input 
-                          type="text" 
-                          placeholder="1234567890"
-                          value={adminProfile?.monetization?.adSlotId || ''} 
-                          onChange={e => setAdminProfile(prev => prev ? {...prev, monetization: {...(prev.monetization || {showAds: false}), adSlotId: e.target.value}} : null)}
-                          className="w-full p-4 bg-slate-800 border border-slate-700 rounded-xl text-white outline-none font-black text-[10px] focus:ring-2 focus:ring-blue-500" 
-                        />
-                      </div>
-                    </div>
-                    <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
-                      Para usar o AdSense, insira seu ID de Editor e o ID do bloco de anúncios. Os anúncios aparecerão no Dashboard.
-                    </p>
-                  </div>
-               </div>
             </div>
           </div>
         )}
@@ -990,60 +1206,198 @@ const App: React.FC = () => {
                 </h3>
                 <button onClick={() => setIsModalOpen(false)} className="text-slate-600 hover:text-white transition-colors p-2"><X size={36}/></button>
               </div>
+
+              {modalType === 'athlete' && (
+                <div className="flex gap-2 mb-8 overflow-x-auto pb-2 custom-scrollbar">
+                  <button 
+                    onClick={() => setAthleteTab('general')} 
+                    className={`px-6 py-3 rounded-2xl font-black uppercase text-[10px] whitespace-nowrap transition-all ${athleteTab === 'general' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}
+                  >
+                    Geral
+                  </button>
+                  <button 
+                    onClick={() => setAthleteTab('competition')} 
+                    className={`px-6 py-3 rounded-2xl font-black uppercase text-[10px] whitespace-nowrap transition-all ${athleteTab === 'competition' ? 'bg-indigo-500 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}
+                  >
+                    Competição
+                  </button>
+                </div>
+              )}
               
               <div className="space-y-6">
-                {modalType === 'athlete' && (
+                {modalType === 'athlete' && athleteTab === 'general' && (
                   <>
+                    <PhotoCapture value={form.photoUrl} onChange={val => setForm({...form, photoUrl: val})} />
                     <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Nome Completo</label><input type="text" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs focus:ring-2 focus:ring-amber-500" /></div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Faixa</label><select value={form.belt} onChange={e => setForm({...form, belt: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"><option value="Branca">Branca</option><option value="Cinza">Cinza</option><option value="Amarela">Amarela</option><option value="Laranja">Laranja</option><option value="Verde">Verde</option><option value="Azul">Azul</option><option value="Roxa">Roxa</option><option value="Marrom">Marrom</option><option value="Preta">Preta</option></select></div>
-                      <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Graus</label><input type="number" min="0" max="4" value={form.degrees || 0} onChange={e => setForm({...form, degrees: parseInt(e.target.value)})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Aniversário</label>
+                         <input 
+                           type="date" 
+                           value={form.birthDate || ''} 
+                           onChange={e => {
+                             const cat = getIBJJFCategory(e.target.value);
+                             setForm({...form, birthDate: e.target.value, category: cat});
+                           }} 
+                           className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" 
+                         />
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Categoria (IBJJF)</label>
+                         <div className="w-full p-5 bg-slate-900 border border-slate-800 rounded-3xl text-amber-500 font-black text-xs uppercase italic">
+                           {form.category || 'Defina a Data'}
+                         </div>
+                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Aniversário</label><input type="date" value={form.birthDate || ''} onChange={e => setForm({...form, birthDate: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Faixa</label>
+                        <select value={form.belt} onChange={e => setForm({...form, belt: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase">
+                          <option value="Branca">Branca</option>
+                          {isKidsCategory(form.category) ? (
+                            <>
+                              <option value="Cinza">Cinza</option>
+                              <option value="Amarela">Amarela</option>
+                              <option value="Laranja">Laranja</option>
+                              <option value="Verde">Verde</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="Azul">Azul</option>
+                              <option value="Roxa">Roxa</option>
+                              <option value="Marrom">Marrom</option>
+                              <option value="Preta">Preta</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
+                      <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Graus</label><input type="number" min="0" max="4" value={form.degrees ?? 0} onChange={e => setForm({...form, degrees: parseInt(e.target.value) || 0})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Peso (kg) - Opcional</label>
+                         <input 
+                           type="number" 
+                           step="0.1" 
+                           value={form.weight || ''} 
+                           onChange={e => {
+                             const w = parseFloat(e.target.value);
+                             const wCat = getIBJJFWeightCategory(w, form.category);
+                             setForm({...form, weight: w, weightCategory: wCat});
+                           }} 
+                           className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" 
+                         />
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Categoria Peso</label>
+                         <div className="w-full p-5 bg-slate-900 border border-slate-800 rounded-3xl text-emerald-500 font-black text-xs uppercase italic">
+                           {form.weightCategory || 'N/A'}
+                         </div>
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
                        <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Turma</label><select value={form.classId || ''} onChange={e => setForm({...form, classId: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"><option value="">Sem Turma</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
                        <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Vencimento (Dia)</label><input type="number" min="1" max="31" value={form.paymentDay || 10} onChange={e => setForm({...form, paymentDay: parseInt(e.target.value)})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Categoria</label><select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"><option value="Adulto">Adulto</option><option value="Infantil">Infantil</option></select></div>
                     </div>
                   </>
+                )}
+
+                {modalType === 'athlete' && athleteTab === 'competition' && (
+                  <div className="space-y-6 animate-in fade-in duration-300">
+                    <div className="bg-indigo-500/10 border border-indigo-500/20 p-6 rounded-[2.5rem] space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-black text-white uppercase italic">Status de Competição</h4>
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-1">Opcional para controle de eventos</p>
+                        </div>
+                        <button 
+                          onClick={() => setForm({...form, inCompetition: !form.inCompetition})}
+                          className={`w-14 h-8 rounded-full transition-all relative ${form.inCompetition ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                        >
+                          <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${form.inCompetition ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {form.inCompetition && (
+                      <div className="space-y-4 animate-in slide-in-from-top-4 duration-300">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Categoria de Competição</label>
+                          <input 
+                            type="text" 
+                            placeholder="Ex: Adulto / Pena"
+                            value={form.competitionCategory || ''} 
+                            onChange={e => setForm({...form, competitionCategory: e.target.value})} 
+                            className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs focus:ring-2 focus:ring-indigo-500" 
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Peso da Categoria</label>
+                            <input 
+                              type="text" 
+                              placeholder="Ex: 70kg"
+                              value={form.competitionWeight || ''} 
+                              onChange={e => setForm({...form, competitionWeight: e.target.value})} 
+                              className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs focus:ring-2 focus:ring-indigo-500" 
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Horário da Luta</label>
+                            <input 
+                              type="text" 
+                              placeholder="Ex: 14:30"
+                              value={form.fightTime || ''} 
+                              onChange={e => setForm({...form, fightTime: e.target.value})} 
+                              className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs focus:ring-2 focus:ring-indigo-500" 
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {modalType === 'class' && (
                   <>
                     <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Nome da Turma</label><input type="text" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Iniciantes, No-Gi, Kids..." className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Cor da Turma</label><input type="color" value={form.color || '#f59e0b'} onChange={e => setForm({...form, color: e.target.value})} className="w-full h-[60px] bg-slate-800 border border-slate-700 rounded-3xl p-2" /></div>
+                    {editId && (
+                      <button onClick={() => { if(confirm("Deseja remover esta turma?")) { setClasses(prev => prev.filter(c => c.id !== editId)); setIsModalOpen(false); } }} className="w-full mt-4 bg-red-600/10 text-red-500 font-black p-4 rounded-2xl transition-all uppercase text-[10px] border border-red-600/20">Remover Turma</button>
+                    )}
+                  </>
+                )}
+
+                {modalType === 'qts' && (
+                  <>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Horário</label>
-                      <input type="text" value={form.schedule || ''} onChange={e => setForm({...form, schedule: e.target.value})} placeholder="19:00 - 20:30" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" />
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Turma</label>
+                      <select 
+                        value={form.classId || ''} 
+                        onChange={e => setForm({...form, classId: e.target.value})} 
+                        className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"
+                      >
+                        <option value="">Selecione uma Turma</option>
+                        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
                     </div>
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Dias da Semana</label>
-                      <div className="flex flex-wrap gap-2">
-                        {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(day => {
-                          const isSelected = form.days?.includes(day);
-                          return (
-                            <button
-                              key={day}
-                              type="button"
-                              onClick={() => {
-                                const currentDays = form.days ? form.days.split(', ').filter(Boolean) : [];
-                                let newDays;
-                                if (isSelected) {
-                                  newDays = currentDays.filter(d => d !== day);
-                                } else {
-                                  newDays = [...currentDays, day];
-                                }
-                                setForm({ ...form, days: newDays.join(', ') });
-                              }}
-                              className={`px-4 py-3 rounded-xl font-black text-[10px] uppercase transition-all border ${isSelected ? 'bg-amber-500 border-amber-400 text-slate-950' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
-                            >
-                              {day}
-                            </button>
-                          );
-                        })}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Horário</label><input type="text" value={form.schedule || ''} onChange={e => setForm({...form, schedule: e.target.value})} placeholder="19:00" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Dia</label>
+                        <select 
+                          value={form.day || ''} 
+                          onChange={e => setForm({...form, day: e.target.value})} 
+                          className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"
+                        >
+                          {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
                       </div>
                     </div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Tópico/Conteúdo</label><input type="text" value={form.topic || ''} onChange={e => setForm({...form, topic: e.target.value})} placeholder="Passagem de Meia-Guarda..." className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                    {editId && (
+                      <button onClick={() => { if(confirm("Deseja remover esta aula do QTS?")) { setQtsItems(prev => prev.filter(i => i.id !== editId)); setIsModalOpen(false); } }} className="w-full mt-4 bg-red-600/10 text-red-500 font-black p-4 rounded-2xl transition-all uppercase text-[10px] border border-red-600/20">Remover Aula</button>
+                    )}
                   </>
                 )}
 
@@ -1067,6 +1421,9 @@ const App: React.FC = () => {
                 } else if(modalType === 'class') {
                   if(editId) setClasses(prev => prev.map(c => c.id === editId ? {...c, ...form} : c));
                   else setClasses(prev => [...prev, { ...form, id: Date.now().toString(), color: '#f59e0b' }]);
+                } else if(modalType === 'qts') {
+                  if(editId) setQtsItems(prev => prev.map(i => i.id === editId ? {...i, ...form} : i));
+                  else setQtsItems(prev => [...prev, { ...form, id: Date.now().toString() }]);
                 }
                 setIsModalOpen(false);
               }} className="w-full mt-10 bg-amber-500 text-slate-950 font-black p-7 rounded-[2.5rem] transition-all uppercase italic text-sm shadow-2xl active:scale-95 hover:bg-white tracking-widest">Salvar OSS!</button>

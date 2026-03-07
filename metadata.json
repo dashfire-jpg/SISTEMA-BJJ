@@ -1,5 +1,5 @@
 {
   "name": "SYSBJJ",
   "description": "Plataforma de gestão inteligente para academias de Jiu-Jitsu com controle financeiro, frequência e consultoria via IA.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["camera"]
 }

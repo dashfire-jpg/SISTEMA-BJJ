@@ -1,6 +1,8 @@
 
 export type UserRole = 'admin' | 'professor' | 'student';
-export type AgeCategory = 'Infantil' | 'Adulto';
+export type AgeCategory = 
+  | 'Mirim' | 'Infantil' | 'Infanto-Juvenil' | 'Juvenil' 
+  | 'Adulto' | 'Master 1' | 'Master 2' | 'Master 3' | 'Master 4' | 'Master 5' | 'Master 6' | 'Master 7';
 
 export type AdultBelt = 'Branca' | 'Azul' | 'Roxa' | 'Marrom' | 'Preta';
 export type KidsBelt = 'Branca' | 'Cinza' | 'Amarela' | 'Laranja' | 'Verde';
@@ -35,9 +37,15 @@ export interface AdminProfile {
 export interface TrainingClass {
   id: string;
   name: string;
-  schedule: string;
-  days: string;
   color: string;
+}
+
+export interface QTSItem {
+  id: string;
+  classId: string;
+  day: string;
+  schedule: string;
+  topic?: string;
 }
 
 export interface Athlete {
@@ -55,6 +63,8 @@ export interface Athlete {
   belt: Belt;
   degrees: number;
   category: AgeCategory;
+  weight?: number;
+  weightCategory?: string;
   classId?: string; 
   phone: string;
   emergencyContact: string;
@@ -66,6 +76,11 @@ export interface Athlete {
   address: Address;
   termsAccepted: boolean;
   profileComplete: boolean;
+  photoUrl?: string;
+  inCompetition?: boolean;
+  competitionCategory?: string;
+  competitionWeight?: string;
+  fightTime?: string;
 }
 
 export interface Transaction {

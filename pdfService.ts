@@ -1,7 +1,7 @@
 
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { Athlete, Transaction, AdminProfile } from './types';
+import { Athlete, Transaction, AdminProfile, TrainingClass, QTSItem } from './types';
 
 // Fix: Using any for doc type to bypass incomplete type definitions in some environments 
 // and to support jspdf-autotable without complex interface augmentation.
@@ -111,4 +111,121 @@ export const generateBirthdayMural = (athletes: Athlete[], admin: AdminProfile |
   doc.text(`${admin?.dojoName || 'NOSSA ACADEMIA'} - FAMÍLIA UNIDA, OSS!`, 105, 285, { align: 'center' });
   
   doc.save(`Mural_Aniversariantes_${monthName}.pdf`);
+};
+
+export const generateQTSPDF = (items: QTSItem[], classes: TrainingClass[], admin: AdminProfile | null, weeklyPlanning: string) => {
+  const doc = new jsPDF() as any;
+  const dateStr = new Date().toLocaleDateString('pt-BR');
+  
+  // Header
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('QTS - QUADRO DE TRABALHO SEMANAL', 15, 20);
+  
+  doc.setFontSize(10);
+  doc.text(`${admin?.dojoName || 'ACADEMIA BJJ'} | Emissão: ${dateStr}`, 15, 30);
+  
+  // Weekly Planning Section
+  if (weeklyPlanning) {
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('FOCO TÉCNICO DA SEMANA:', 15, 55);
+    
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    const splitPlanning = doc.splitTextToSize(weeklyPlanning, 180);
+    doc.text(splitPlanning, 15, 65);
+  }
+  
+  // Schedule Table
+  const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+  const tableData: any[] = [];
+  
+  // Group items by time slot for a better visual representation
+  const timeSlots = Array.from(new Set(items.map(i => i.schedule))).sort();
+  
+  timeSlots.forEach(slot => {
+    const row = [slot];
+    days.forEach(day => {
+      const itemsInSlot = items.filter(i => 
+        i.schedule === slot && 
+        i.day === day.substring(0, 3)
+      );
+      row.push(itemsInSlot.map(i => {
+        const cls = classes.find(c => c.id === i.classId);
+        const name = cls?.name || 'Aula';
+        return i.topic ? `${name}\n[${i.topic}]` : name;
+      }).join('\n\n'));
+    });
+    tableData.push(row);
+  });
+  
+  doc.autoTable({
+    startY: weeklyPlanning ? 85 : 55,
+    head: [['Horário', ...days]],
+    body: tableData,
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 9 },
+    styles: { fontSize: 8, cellPadding: 3, halign: 'center', valign: 'middle' },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 25 }
+    },
+    alternateRowStyles: { fillColor: [245, 245, 245] }
+  });
+  
+  // Footer
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text('OSS! - DISCIPLINA E RESPEITO SEMPRE', 105, 285, { align: 'center' });
+  
+  doc.save(`QTS_${admin?.dojoName || 'Academia'}_${dateStr.replace(/\//g, '-')}.pdf`);
+};
+
+export const generateCompetitionPDF = (
+  athletes: Athlete[], 
+  admin: AdminProfile | null
+) => {
+  const doc = new jsPDF() as any;
+  const dateStr = new Date().toLocaleDateString('pt-BR');
+  
+  // Header
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('CONTROLE DE COMPETIÇÃO', 15, 20);
+  
+  doc.setFontSize(10);
+  doc.text(`${admin?.dojoName || 'ACADEMIA BJJ'} | Emissão: ${dateStr}`, 15, 30);
+  
+  // Table
+  const tableData = athletes.map(a => [
+    a.name.toUpperCase(),
+    a.belt.toUpperCase(),
+    a.competitionCategory?.toUpperCase() || a.category.toUpperCase(),
+    a.competitionWeight?.toUpperCase() || (a.weight ? `${a.weight} KG` : '-'),
+    a.fightTime || '________' // Blank space for manual filling if not provided
+  ]);
+  
+  doc.autoTable({
+    startY: 50,
+    head: [['Atleta', 'Faixa', 'Categoria', 'Peso', 'Horário da Luta']],
+    body: tableData,
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 10 },
+    styles: { fontSize: 9, cellPadding: 5 },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+  });
+  
+  // Footer
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text('BOA SORTE AOS GUERREIROS! OSS!', 105, 285, { align: 'center' });
+  
+  doc.save(`Controle_Competicao_${dateStr.replace(/\//g, '-')}.pdf`);
 };
