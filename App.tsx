@@ -8,6 +8,7 @@ import {
   Info, Bell, Cake, ChevronRight, Play, Pause, Trash2, Upload, LayoutDashboard,
   Smartphone, UserCheck, Layers, Filter, FileText, Printer, Save, Camera
 } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 import { Athlete, Transaction, AppView, Belt, AdminProfile, TrainingClass, AgeCategory, QTSItem } from './types';
 import { getDojoInsights } from './geminiService';
 import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF } from './pdfService';
@@ -1461,6 +1462,7 @@ const App: React.FC = () => {
       )}
 
       <PWAInstallPrompt logoUrl={adminProfile?.logoUrl || DEFAULT_LOGO} />
+      <Analytics />
     </div>
   );
 };
