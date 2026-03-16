@@ -60,6 +60,7 @@ export interface Athlete {
   status: 'active' | 'inactive';
   attendanceCount: number;
   lastAttendance?: string;
+  attendanceLog?: string[];
   belt: Belt;
   degrees: number;
   category: AgeCategory;

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Athlete, Transaction, AppView, Belt, AdminProfile, TrainingClass, AgeCategory, QTSItem } from './types';
 import { getDojoInsights } from './geminiService';
-import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF } from './pdfService';
+import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF, generateRankingPDF } from './pdfService';
 
 const BELT_COLORS: Record<string, string> = {
   'Branca': '#f8fafc',
@@ -24,7 +24,7 @@ const BELT_COLORS: Record<string, string> = {
   'Preta': '#0f172a'
 };
 
-const DEFAULT_LOGO = "https://images.unsplash.com/photo-1552072092-7f9b8d63efcb?auto=format&fit=crop&q=80&w=512&h=512";
+const DEFAULT_LOGO = "https://images.unsplash.com/photo-1564415051543-cb73a7468103?q=80&w=512&h=512&auto=format&fit=crop";
 
 const BeltBadge: React.FC<{ belt: Belt; degrees: number }> = ({ belt, degrees }) => {
   const safeDegrees = Math.max(0, Math.min(Number(degrees) || 0, 4));
@@ -351,6 +351,7 @@ const App: React.FC = () => {
   const [athleteTab, setAthleteTab] = useState<'general' | 'competition'>('general');
   const [competitionMode, setCompetitionMode] = useState(false);
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
+  const [rankingType, setRankingType] = useState<'Mensal' | 'Geral'>('Mensal');
 
   // Timer State
   const [timeLeft, setTimeLeft] = useState(300);
@@ -446,18 +447,37 @@ const App: React.FC = () => {
 
   const stats = useMemo(() => {
     const today = new Date().getDate();
-    const currentMonth = new Date().getMonth();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
     const imminent = athletes.filter(a => a.status === 'active' && (a.paymentDay === today || (a.paymentDay > today && a.paymentDay - today <= 3)));
     const birthdays = athletes.filter(a => a.birthDate && new Date(a.birthDate).getMonth() === currentMonth);
+    
     const ranking = [...athletes].sort((a, b) => b.attendanceCount - a.attendanceCount);
+    
+    const monthlyRanking = [...athletes].map(a => {
+      const monthlyCount = a.attendanceLog?.filter(d => {
+        const date = new Date(d);
+        return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+      }).length || 0;
+      return { ...a, monthlyCount };
+    }).sort((a, b) => b.monthlyCount - a.monthlyCount);
+
     const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
     const expense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
-    return { imminent, birthdays, ranking, balance: income - expense, income, expense };
+    
+    return { imminent, birthdays, ranking, monthlyRanking, balance: income - expense, income, expense };
   }, [athletes, transactions]);
 
   const markAttendance = (id: string) => {
     const today = new Date().toISOString().split('T')[0];
-    setAthletes(prev => prev.map(a => a.id === id && a.lastAttendance !== today ? { ...a, attendanceCount: a.attendanceCount + 1, lastAttendance: today } : a));
+    setAthletes(prev => prev.map(a => a.id === id && a.lastAttendance !== today ? { 
+      ...a, 
+      attendanceCount: a.attendanceCount + 1, 
+      lastAttendance: today,
+      attendanceLog: [...(a.attendanceLog || []), today]
+    } : a));
   };
 
   const navigateTo = (v: AppView) => { 
@@ -1071,9 +1091,39 @@ const App: React.FC = () => {
         {/* RANKING */}
         {view === AppView.Ranking && (
            <div className="space-y-8 animate-in fade-in max-w-2xl mx-auto pb-10">
-              <header className="text-center"><h2 className="text-4xl font-black text-white italic uppercase tracking-tighter leading-none">Ranking Frequência</h2></header>
+              <header className="flex flex-col items-center gap-6">
+                <div className="text-center">
+                  <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter leading-none">Ranking Frequência</h2>
+                  <p className="text-[10px] font-black uppercase text-slate-500 mt-2 tracking-widest">A constância vence o talento. OSS!</p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-4 w-full">
+                  <div className="flex bg-slate-900 p-1.5 rounded-2xl border border-slate-800 flex-1">
+                    <button 
+                      onClick={() => setRankingType('Mensal')}
+                      className={`flex-1 py-3 rounded-xl font-black uppercase text-[10px] transition-all ${rankingType === 'Mensal' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}
+                    >
+                      Avaliação Mensal
+                    </button>
+                    <button 
+                      onClick={() => setRankingType('Geral')}
+                      className={`flex-1 py-3 rounded-xl font-black uppercase text-[10px] transition-all ${rankingType === 'Geral' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}
+                    >
+                      Ranking Geral
+                    </button>
+                  </div>
+                  <button 
+                    onClick={() => generateRankingPDF(rankingType === 'Mensal' ? stats.monthlyRanking : stats.ranking, adminProfile, rankingType)}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all"
+                  >
+                    <Printer size={18} /> Imprimir Mural
+                  </button>
+                </div>
+              </header>
+
               <div className="space-y-4">
-                 {stats.ranking.length > 0 ? stats.ranking.map((ath, idx) => (
+                 {(rankingType === 'Mensal' ? stats.monthlyRanking : stats.ranking).length > 0 ? 
+                  (rankingType === 'Mensal' ? stats.monthlyRanking : stats.ranking).map((ath, idx) => (
                    <div key={ath.id} className={`p-8 rounded-[3rem] border flex items-center gap-6 shadow-2xl transition-all ${idx === 0 ? 'bg-amber-500 border-amber-400 text-slate-950 scale-[1.03]' : 'bg-slate-900 border-slate-800 text-white'}`}>
                       <div className={`text-4xl font-black italic w-16 text-center shrink-0 ${idx === 0 ? 'text-slate-950' : 'text-slate-700'}`}>{idx + 1}º</div>
                       <div className="w-16 h-16 bg-slate-800/50 rounded-2xl flex items-center justify-center font-black text-amber-500 italic shadow-inner overflow-hidden shrink-0">
@@ -1085,12 +1135,17 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex-1 overflow-hidden">
                          <p className="font-black uppercase italic text-lg truncate leading-none mb-1">{ath.name}</p>
-                         <p className={`text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}>{ath.attendanceCount} TREINOS</p>
+                         <p className={`text-[10px] font-black uppercase tracking-widest ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}>
+                           {rankingType === 'Mensal' ? (ath as any).monthlyCount : ath.attendanceCount} TREINOS
+                         </p>
                       </div>
                       <BeltBadge belt={ath.belt} degrees={ath.degrees} />
                    </div>
                  )) : (
-                   <p className="text-center opacity-30 uppercase font-black py-10">Sem treinos registrados</p>
+                   <div className="p-20 text-center opacity-20 border-2 border-dashed border-slate-800 rounded-[3rem]">
+                     <Trophy size={64} className="mx-auto mb-4"/>
+                     <p className="text-xs font-black uppercase tracking-widest">Sem treinos registrados</p>
+                   </div>
                  )}
               </div>
            </div>

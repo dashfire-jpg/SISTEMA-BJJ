@@ -229,3 +229,58 @@ export const generateCompetitionPDF = (
   
   doc.save(`Controle_Competicao_${dateStr.replace(/\//g, '-')}.pdf`);
 };
+
+export const generateRankingPDF = (
+  athletes: Athlete[], 
+  admin: AdminProfile | null,
+  type: 'Mensal' | 'Geral'
+) => {
+  const doc = new jsPDF() as any;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('pt-BR');
+  const monthName = now.toLocaleDateString('pt-BR', { month: 'long' }).toUpperCase();
+  
+  // Header
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, 210, 45, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(24);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RANKING DE FREQUÊNCIA', 105, 20, { align: 'center' });
+  
+  doc.setFontSize(12);
+  doc.text(`${type === 'Mensal' ? `AVALIAÇÃO MENSAL - ${monthName}` : 'RANKING GERAL'}`, 105, 32, { align: 'center' });
+  
+  doc.setFontSize(10);
+  doc.text(`${admin?.dojoName || 'ACADEMIA BJJ'} | Emissão: ${dateStr}`, 105, 40, { align: 'center' });
+  
+  // Table
+  const tableData = athletes.map((a, idx) => [
+    `${idx + 1}º`,
+    a.name.toUpperCase(),
+    a.belt.toUpperCase(),
+    type === 'Mensal' ? 
+      (a.attendanceLog?.filter(d => new Date(d).getMonth() === now.getMonth() && new Date(d).getFullYear() === now.getFullYear()).length || 0) : 
+      a.attendanceCount
+  ]);
+  
+  doc.autoTable({
+    startY: 55,
+    head: [['Pos', 'Guerreiro(a)', 'Faixa', 'Treinos']],
+    body: tableData,
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 12, halign: 'center' },
+    styles: { fontSize: 11, cellPadding: 6, halign: 'center', valign: 'middle' },
+    columnStyles: {
+      1: { halign: 'left', fontStyle: 'bold' },
+    },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+  });
+  
+  // Footer
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text('A CONSTÂNCIA É O CAMINHO PARA A EXCELÊNCIA. OSS!', 105, 285, { align: 'center' });
+  
+  doc.save(`Ranking_${type}_${admin?.dojoName || 'Academia'}_${dateStr.replace(/\//g, '-')}.pdf`);
+};
