@@ -284,3 +284,159 @@ export const generateRankingPDF = (
   
   doc.save(`Ranking_${type}_${admin?.dojoName || 'Academia'}_${dateStr.replace(/\//g, '-')}.pdf`);
 };
+
+export const generateManagementReport = (
+  athletes: Athlete[], 
+  transactions: Transaction[],
+  admin: AdminProfile | null
+) => {
+  const doc = new jsPDF() as any;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('pt-BR');
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  
+  // Header
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, 210, 45, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RELATÓRIO DE GESTÃO MENSAL', 105, 20, { align: 'center' });
+  
+  doc.setFontSize(10);
+  doc.text(`${admin?.dojoName || 'ACADEMIA BJJ'} | Referência: ${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}`, 105, 32, { align: 'center' });
+  doc.text(`Emissão: ${dateStr}`, 105, 40, { align: 'center' });
+  
+  // Stats summary
+  const activeAthletes = athletes.filter(a => a.status === 'active');
+  const churnedThisMonth = athletes.filter(a => {
+    if (a.status === 'inactive') return true;
+    const joinDate = new Date(a.joinDate);
+    const tenureDays = (now.getTime() - joinDate.getTime()) / (1000 * 3600 * 24);
+    // Consider "left quickly" if tenure < 60 days and no attendance in last 15 days
+    const lastAttendanceDate = a.lastAttendance ? new Date(a.lastAttendance) : null;
+    const daysSinceLastAttendance = lastAttendanceDate ? (now.getTime() - lastAttendanceDate.getTime()) / (1000 * 3600 * 24) : 999;
+    return tenureDays < 60 && daysSinceLastAttendance > 15;
+  });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(14);
+  doc.text('RESUMO DA ACADEMIA', 15, 60);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Total de Alunos Ativos: ${activeAthletes.length}`, 15, 70);
+  doc.text(`Alunos com Risco de Evasão / Saída Rápida: ${churnedThisMonth.length}`, 15, 75);
+
+  // Table
+  const tableData = activeAthletes.map(a => {
+    const monthlyAttendance = a.attendanceLog?.filter(d => {
+      const date = new Date(d);
+      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+    }).length || 0;
+
+    const athleteTransactions = transactions.filter(t => t.athleteId === a.id && t.type === 'income');
+    const lastPayment = athleteTransactions.length > 0 ? 
+      new Date(Math.max(...athleteTransactions.map(t => new Date(t.date).getTime()))).toLocaleDateString('pt-BR') : 
+      'SEM REGISTRO';
+
+    return [
+      a.name.toUpperCase(),
+      a.belt.toUpperCase(),
+      monthlyAttendance.toString(),
+      `DIA ${a.paymentDay}`,
+      lastPayment
+    ];
+  });
+  
+  doc.autoTable({
+    startY: 85,
+    head: [['Atleta', 'Faixa', 'Presenças (Mês)', 'Vencimento', 'Último Pagto']],
+    body: tableData,
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 10 },
+    styles: { fontSize: 9, cellPadding: 4 },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+  });
+  
+  // Footer
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('Relatório gerado para auxílio na retenção e controle financeiro. OSS!', 105, 285, { align: 'center' });
+  
+  doc.save(`Gestao_Mensal_${dateStr.replace(/\//g, '-')}.pdf`);
+};
+
+export const generateSystemReport = (
+  athletes: Athlete[],
+  transactions: Transaction[],
+  classes: TrainingClass[],
+  admin: AdminProfile | null
+) => {
+  const doc = new jsPDF() as any;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('pt-BR');
+  
+  // Header
+  doc.setFillColor(30, 41, 59); // Slate 800
+  doc.rect(0, 0, 210, 50, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(24);
+  doc.setFont('helvetica', 'bold');
+  doc.text('SYSBJJ - DASHBOARD DO ADMINISTRADOR', 105, 25, { align: 'center' });
+  
+  doc.setFontSize(10);
+  doc.text(`RELATÓRIO TÉCNICO DE USO E CONTROLE DE ACESSO`, 105, 35, { align: 'center' });
+  doc.text(`EMISSÃO: ${dateStr} | EXCLUSIVO: ${admin?.email || 'ADMINISTRADOR'}`, 105, 43, { align: 'center' });
+  
+  // Stats Block
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(14);
+  doc.text('ESTATÍSTICAS GERAIS', 15, 65);
+  
+  const stats = [
+    ['Total de Atletas Cadastrados', athletes.length.toString()],
+    ['Atletas Ativos', athletes.filter(a => a.status === 'active').length.toString()],
+    ['Total de Turmas', classes.length.toString()],
+    ['Total de Transações', transactions.length.toString()],
+    ['Volume em Caixa', `R$ ${transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0).toFixed(2)}`]
+  ];
+
+  doc.autoTable({
+    startY: 70,
+    body: stats,
+    theme: 'plain',
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: 'bold', width: 60 } }
+  });
+
+  // User Access List
+  doc.setFontSize(14);
+  doc.text('CONTROLE DE ACESSO (USUÁRIOS/ATLETAS)', 15, 115);
+
+  const userData = athletes.map(a => [
+    a.accessId,
+    a.name.toUpperCase(),
+    a.status === 'active' ? 'ATIVO' : 'INATIVO',
+    a.lastAttendance ? new Date(a.lastAttendance).toLocaleDateString('pt-BR') : 'NUNCA',
+    a.attendanceCount.toString()
+  ]);
+
+  doc.autoTable({
+    startY: 120,
+    head: [['ID ACESSO', 'NOME COMPLETO', 'STATUS', 'ÚLTIMA ENTRADA', 'TOTAL PRESENÇAS']],
+    body: userData,
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 9 },
+    styles: { fontSize: 8 },
+    alternateRowStyles: { fillColor: [245, 247, 250] },
+  });
+
+  // Security Note
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Este documento contém informações confidenciais de uso interno do administrador Master.', 105, 285, { align: 'center' });
+  doc.text('SYSBJJ - Inteligência em Gestão de Artes Marciais', 105, 290, { align: 'center' });
+
+  doc.save(`Relatorio_Sistema_${dateStr.replace(/\//g, '-')}.pdf`);
+};

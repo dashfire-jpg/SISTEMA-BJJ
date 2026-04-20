@@ -25,19 +25,15 @@ export interface AdminProfile {
   address: string;
   registered: boolean;
   logoUrl?: string;
-  monetization?: {
-    showAds: boolean;
-    customBannerUrl?: string;
-    customBannerLink?: string;
-    adClientId?: string;
-    adSlotId?: string;
-  };
 }
 
 export interface TrainingClass {
   id: string;
   name: string;
   color: string;
+  sensei?: string;
+  maxCapacity?: number;
+  description?: string;
 }
 
 export interface QTSItem {
@@ -93,6 +89,7 @@ export interface Transaction {
   category: string;
   athleteId?: string;
   status: 'pending' | 'verified';
+  receiptUrl?: string;
 }
 
 export enum AppView {
@@ -107,5 +104,6 @@ export enum AppView {
   AdminRegistration = 'admin-registration',
   Settings = 'settings',
   Classes = 'classes',
-  QTS = 'qts'
+  QTS = 'qts',
+  SystemControl = 'system-control'
 }

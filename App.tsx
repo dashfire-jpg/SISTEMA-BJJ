@@ -6,11 +6,11 @@ import {
   Edit, ArrowRight, Clock, Database, Download, FileJson, 
   ShieldAlert, RotateCcw, VolumeX, Fingerprint, Calendar as CalendarIcon, 
   Info, Bell, Cake, ChevronRight, Play, Pause, Trash2, Upload, LayoutDashboard,
-  Smartphone, UserCheck, Layers, Filter, FileText, Printer, Save, Camera
+  Smartphone, UserCheck, Layers, Filter, FileText, Printer, Save, Camera, ShieldCheck, Mail, Heart, UserMinus, Instagram
 } from 'lucide-react';
 import { Athlete, Transaction, AppView, Belt, AdminProfile, TrainingClass, AgeCategory, QTSItem } from './types';
 import { getDojoInsights } from './geminiService';
-import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF, generateRankingPDF } from './pdfService';
+import { generateFinancialReport, generateBirthdayMural, generateQTSPDF, generateCompetitionPDF, generateRankingPDF, generateManagementReport, generateSystemReport } from './pdfService';
 
 const BELT_COLORS: Record<string, string> = {
   'Branca': '#f8fafc',
@@ -132,40 +132,38 @@ const PWAInstallPrompt: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   );
 };
 
-const AdSense: React.FC<{ client?: string; slot?: string }> = ({ 
-  client = "ca-pub-9629326132800108", 
-  slot = "3020008361" 
-}) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-      } catch (e) {
-        console.error('AdSense error:', e);
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [client, slot]);
-
-  return (
-    <div className="w-full overflow-hidden my-4 flex justify-center min-h-[90px]">
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minWidth: '250px' }}
-        data-ad-client={client}
-        data-ad-slot={slot}
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-};
-
 const formatTime = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
+
+const SupportSection: React.FC = () => (
+  <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6 relative overflow-hidden group">
+    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+      <Star size={100} />
+    </div>
+    <div className="flex items-center gap-4">
+      <div className="w-14 h-14 bg-amber-500/10 text-amber-500 rounded-2xl flex items-center justify-center">
+        <Smartphone size={28} />
+      </div>
+      <div>
+        <h3 className="text-xl font-black uppercase text-white italic">Suporte & Doações</h3>
+        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Dúvidas, sugestões ou apoio ao projeto</p>
+      </div>
+    </div>
+    <div className="space-y-4">
+      <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50">
+        <p className="text-[10px] font-black text-slate-500 uppercase mb-2">E-mail para contato</p>
+        <p className="text-white font-black text-sm italic">dashfire@gmail.com</p>
+      </div>
+      <div className="bg-amber-500/10 p-6 rounded-2xl border border-amber-500/20">
+        <p className="text-[10px] font-black text-amber-500 uppercase mb-2">PIX para doação (Apoie o sistema)</p>
+        <p className="text-white font-black text-sm italic">dashfire@gmail.com</p>
+      </div>
+    </div>
+  </div>
+);
 
 type AlarmType = 'buzzer' | 'bell' | 'MATE' | 'FIM';
 
@@ -287,6 +285,9 @@ const App: React.FC = () => {
   const STORAGE_KEY_CLASSES = 'sistemabjj_classes_prod';
   const STORAGE_KEY_QTS = 'sistemabjj_qts_prod';
   const STORAGE_KEY_PLANNING = 'sistemabjj_planning_prod';
+  const STORAGE_KEY_TIMER = 'sistemabjj_timer_prod';
+  const STORAGE_KEY_ACCESS = 'sistemabjj_access_count';
+  const STORAGE_KEY_USER = 'sistemabjj_user_session';
 
   const [athletes, setAthletes] = useState<Athlete[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ATHLETES) || '[]'));
   const [transactions, setTransactions] = useState<Transaction[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]'));
@@ -295,6 +296,18 @@ const App: React.FC = () => {
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => JSON.parse(localStorage.getItem(STORAGE_KEY_ADMIN) || 'null'));
   const [weeklyPlanning, setWeeklyPlanning] = useState<string>(() => localStorage.getItem(STORAGE_KEY_PLANNING) || '');
   const [logoPreview, setLogoPreview] = useState<string>(adminProfile?.logoUrl || DEFAULT_LOGO);
+
+  // Timer State with Persistence
+  const savedTimer = useMemo(() => JSON.parse(localStorage.getItem(STORAGE_KEY_TIMER) || '{"timeLeft": 300, "manualMin": 5, "manualSec": 0}'), []);
+  const [timeLeft, setTimeLeft] = useState(savedTimer.timeLeft);
+  const [manualMin, setManualMin] = useState(savedTimer.manualMin);
+  const [manualSec, setManualSec] = useState(savedTimer.manualSec);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [selectedAlarm, setSelectedAlarm] = useState<AlarmType>('buzzer');
+  const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
+  const timerIntervalRef = useRef<number | null>(null);
+  const alarmIntervalRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const getIBJJFCategory = (birthDate: string): AgeCategory => {
     if (!birthDate) return 'Adulto';
@@ -336,15 +349,51 @@ const App: React.FC = () => {
   };
 
   // UI State
-  const [user, setUser] = useState<{name: string, role: string} | null>(() => {
-    const admin = JSON.parse(localStorage.getItem(STORAGE_KEY_ADMIN) || 'null');
-    return admin ? { name: admin.name, role: 'admin' } : null;
+  const [user, setUser] = useState<{name: string, role: string, email?: string} | null>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_USER);
+    return saved ? JSON.parse(saved) : null;
   });
   const [view, setView] = useState<AppView>(AppView.Login);
   const [aiInsight, setAiInsight] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'athlete' | 'transaction' | 'class' | 'qts'>('athlete');
   const [editId, setEditId] = useState<string | null>(null);
+
+  const totalAccesses = useMemo(() => parseInt(localStorage.getItem(STORAGE_KEY_ACCESS) || '0'), []);
+
+  useEffect(() => {
+    const current = parseInt(localStorage.getItem(STORAGE_KEY_ACCESS) || '0');
+    localStorage.setItem(STORAGE_KEY_ACCESS, (current + 1).toString());
+  }, []);
+
+  const churnedAthletes = useMemo(() => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return athletes.filter(a => {
+      if (!a.lastAttendance) return true;
+      return new Date(a.lastAttendance) < thirtyDaysAgo;
+    });
+  }, [athletes]);
+
+  const exportMarketingCSV = () => {
+    const headers = ['Nome', 'Email', 'Telefone', 'Status', 'Ultima Presenca'];
+    const rows = athletes.map(a => [
+      a.name,
+      a.email,
+      a.phone,
+      a.status,
+      a.lastAttendance || 'N/A'
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + [headers, ...rows].map(e => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "marketing_base_bjj.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   const [form, setForm] = useState<any>({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
@@ -352,30 +401,8 @@ const App: React.FC = () => {
   const [competitionMode, setCompetitionMode] = useState(false);
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
   const [rankingType, setRankingType] = useState<'Mensal' | 'Geral'>('Mensal');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  // Timer State
-  const [timeLeft, setTimeLeft] = useState(300);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [selectedAlarm, setSelectedAlarm] = useState<AlarmType>('buzzer');
-  const [manualMin, setManualMin] = useState(5);
-  const [manualSec, setManualSec] = useState(0);
-  const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
-  const timerIntervalRef = useRef<number | null>(null);
-  const alarmIntervalRef = useRef<number | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-
-  useEffect(() => {
-    if (adminProfile && (!adminProfile.monetization?.adClientId || !adminProfile.monetization?.adSlotId)) {
-      setAdminProfile(prev => prev ? {
-        ...prev,
-        monetization: {
-          ...(prev.monetization || { showAds: true }),
-          adClientId: prev.monetization?.adClientId || 'ca-pub-9629326132800108',
-          adSlotId: prev.monetization?.adSlotId || '3020008361'
-        }
-      } : null);
-    }
-  }, [adminProfile]);
 
   // Persistência
   useEffect(() => {
@@ -385,14 +412,17 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY_CLASSES, JSON.stringify(classes));
       localStorage.setItem(STORAGE_KEY_QTS, JSON.stringify(qtsItems));
       localStorage.setItem(STORAGE_KEY_PLANNING, weeklyPlanning);
+      localStorage.setItem(STORAGE_KEY_TIMER, JSON.stringify({ timeLeft, manualMin, manualSec }));
       if (adminProfile) localStorage.setItem(STORAGE_KEY_ADMIN, JSON.stringify(adminProfile));
+      if (user) localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+      else localStorage.removeItem(STORAGE_KEY_USER);
     } catch (err) {
       console.error("Erro ao salvar no localStorage:", err);
       if (err instanceof Error && err.name === 'QuotaExceededError') {
         alert("O armazenamento está cheio! Tente remover fotos ou registros antigos.");
       }
     }
-  }, [athletes, transactions, classes, qtsItems, adminProfile, weeklyPlanning]);
+  }, [athletes, transactions, classes, qtsItems, adminProfile, weeklyPlanning, user, timeLeft, manualMin, manualSec]);
 
   useEffect(() => {
     if (!adminProfile?.registered && view !== AppView.AdminRegistration) {
@@ -487,6 +517,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(STORAGE_KEY_USER);
     setUser(null);
     setView(AppView.Login);
     setIsMobileMenuOpen(false);
@@ -534,6 +565,19 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>, transactionId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setTransactions(prev => prev.map(t => t.id === transactionId ? { ...t, receiptUrl: base64, status: 'pending' } : t));
+      alert("Comprovante enviado com sucesso! Aguarde a verificação do Sensei. OSS!");
+    };
+    reader.readAsDataURL(file);
+  };
+
   // VISTAS
   if (view === AppView.AdminRegistration) {
     return (
@@ -543,18 +587,14 @@ const App: React.FC = () => {
           const f = new FormData(e.currentTarget); 
           const newAdmin = { 
             name: f.get('name'), 
+            email: f.get('email'),
             dojoName: f.get('dojoName'), 
             logoUrl: logoPreview,
             password: '', 
-            registered: true,
-            monetization: {
-              showAds: true,
-              adClientId: 'ca-pub-9629326132800108',
-              adSlotId: '3020008361'
-            }
+            registered: true
           }; 
           setAdminProfile(newAdmin as any); 
-          setUser({ name: newAdmin.name as string, role: 'admin' });
+          setUser({ name: newAdmin.name as string, role: 'admin', email: newAdmin.email as string });
           setView(AppView.Dashboard);
         }} className="bg-slate-900 p-8 sm:p-12 rounded-[3rem] border border-slate-800 w-full max-w-xl shadow-2xl space-y-10 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-amber-500"></div>
@@ -570,6 +610,7 @@ const App: React.FC = () => {
           <h2 className="text-3xl font-black italic uppercase tracking-tighter leading-none">Ativar SYSBJJ</h2>
           <div className="space-y-6 text-left">
             <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-500 ml-2 tracking-widest">Seu Nome Mestre</label><input required name="name" placeholder="NOME DO SENSEI" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-2xl text-white font-black uppercase text-xs focus:ring-2 focus:ring-amber-500 outline-none" /></div>
+            <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-500 ml-2 tracking-widest">Seu E-mail</label><input required name="email" type="email" placeholder="EX: ADMIN@DOJO.COM" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-2xl text-white font-black uppercase text-xs focus:ring-2 focus:ring-amber-500 outline-none" /></div>
             <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-500 ml-2 tracking-widest">Nome da Academia</label><input required name="dojoName" placeholder="EX: GRACIE BARRA" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-2xl text-white font-black uppercase text-xs focus:ring-2 focus:ring-amber-500 outline-none" /></div>
             <p className="text-[9px] text-slate-500 font-bold uppercase text-center">Toque no ícone acima para escolher seu logo</p>
           </div>
@@ -587,17 +628,77 @@ const App: React.FC = () => {
                 <div className="w-24 h-24 bg-amber-500 rounded-3xl flex items-center justify-center mb-8 mx-auto shadow-2xl transform group-hover:rotate-6 transition-transform overflow-hidden">
                    <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-16 h-16 object-contain" />
                 </div>
-                <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter mb-2 leading-none">SYSBJJ</h1>
-                <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-12">{adminProfile?.dojoName || "Portal de Acesso"}</p>
-                
-                <div className="grid grid-cols-1 gap-4">
-                    <button onClick={() => { setUser({ name: adminProfile?.name || 'Mestre', role: 'admin' }); setView(AppView.Dashboard); }} className="w-full bg-white text-slate-950 font-black p-6 rounded-2xl hover:bg-amber-500 transition-all uppercase italic text-sm flex items-center justify-center gap-3 active:scale-95 shadow-xl group">
-                       <LayoutDashboard size={20} /> Acessar Painel <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                 <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter mb-2 leading-none">SYSBJJ 1.0</h1>
+                 <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-12">{adminProfile?.dojoName || "Portal de Acesso"}</p>
+                 
+                 <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    const email = (f.get('email') as string).toLowerCase();
+                    
+                    if (email === 'dashfire@gmail.com') {
+                      setUser({ name: 'Master Admin', role: 'admin', email });
+                      setView(AppView.Dashboard);
+                    } else if (adminProfile?.email && email === adminProfile.email.toLowerCase()) {
+                      setUser({ name: adminProfile.name, role: 'admin', email });
+                      setView(AppView.Dashboard);
+                    } else {
+                      const athlete = athletes.find(a => a.email?.toLowerCase() === email);
+                      if (athlete) {
+                        setUser({ id: athlete.id, name: athlete.name, role: 'student', email });
+                        setView(AppView.Ranking);
+                      } else {
+                        alert('E-mail não cadastrado no sistema.');
+                      }
+                    }
+                 }} className="grid grid-cols-1 gap-4 text-center">
+                    <div className="space-y-1 text-left mb-4">
+                       <label className="text-[10px] font-black uppercase text-slate-500 ml-2 tracking-widest">Seu E-mail (Acesso)</label>
+                       <input required name="email" type="email" placeholder="EX: SEU@EMAIL.COM" className="w-full p-5 bg-slate-800 border border-slate-700 rounded-2xl text-white font-black text-xs focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <button type="submit" className="w-full bg-white text-slate-950 font-black p-6 rounded-2xl hover:bg-amber-500 transition-all uppercase italic text-sm flex items-center justify-center gap-3 active:scale-95 shadow-xl group">
+                       <LayoutDashboard size={20} /> Entrar OSS! <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                     </button>
-                    <button onClick={() => { setView(AppView.Ranking); setUser({ name: 'Visitante', role: 'student' }); }} className="w-full bg-slate-800 text-white font-black p-6 rounded-2xl hover:bg-slate-700 transition-all uppercase italic text-sm flex items-center justify-center gap-3 active:scale-95 border border-slate-700">
-                       <Trophy size={20} className="text-amber-500" /> Ver Ranking
+                    <button type="button" onClick={() => { setView(AppView.Ranking); setUser({ name: 'Visitante', role: 'student' }); }} className="w-full bg-slate-800 text-white font-black p-6 rounded-2xl hover:bg-slate-700 transition-all uppercase italic text-sm flex items-center justify-center gap-3 active:scale-95 border border-slate-700">
+                       <Trophy size={20} className="text-amber-500" /> Ver Ranking Geral
                     </button>
-                </div>
+                 </form>
+
+                 <div className="mt-12 pt-8 border-t border-slate-800/50">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-4">Deseja gerenciar outra academia?</p>
+                    
+                    {!showResetConfirm ? (
+                      <button 
+                        onClick={() => setShowResetConfirm(true)}
+                        className="text-slate-600 hover:text-amber-500 font-black uppercase text-[9px] tracking-[0.2em] transition-colors flex items-center gap-2 mx-auto active:scale-95"
+                      >
+                        <RotateCcw size={12} /> Reiniciar Sistema / Novo Dojo
+                      </button>
+                    ) : (
+                      <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                        <p className="text-[10px] text-rose-500 font-black uppercase tracking-widest leading-tight px-4">
+                          ATENÇÃO: Isso apagará TODOS os dados locais. Esta ação é irreversível!
+                        </p>
+                        <div className="flex items-center justify-center gap-3">
+                          <button 
+                            onClick={() => {
+                              localStorage.clear();
+                              window.location.reload();
+                            }}
+                            className="bg-rose-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 shadow-lg active:scale-95 transition-all"
+                          >
+                            Sim, Zerar Tudo
+                          </button>
+                          <button 
+                            onClick={() => setShowResetConfirm(false)}
+                            className="bg-slate-800 text-slate-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-slate-700 active:scale-95 transition-all"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                 </div>
             </div>
         </div>
     );
@@ -613,74 +714,94 @@ const App: React.FC = () => {
             <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-full h-full object-contain p-1" />
           </div>
           <div className="flex flex-col">
-            <span className="text-xl font-black italic uppercase text-white tracking-tighter leading-none">SYSBJJ</span>
+            <span className="text-xl font-black italic uppercase text-white tracking-tighter leading-none">SYSBJJ 1.0</span>
             <span className="text-[10px] font-black text-amber-500 italic uppercase tracking-widest mt-0.5">OSS!</span>
           </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
           {[
-            { v: AppView.Dashboard, i: Home, t: "Início" },
-            { v: AppView.Classes, i: Layers, t: "Aulas / Turmas" },
-            { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade" },
-            { v: AppView.Athletes, i: Users, t: "Alunos" },
-            { v: AppView.Attendance, i: CalendarCheck, t: "Chamada" },
-            { v: AppView.Finance, i: DollarSign, t: "Financeiro" },
-            { v: AppView.Ranking, i: Trophy, t: "Ranking" },
-            { v: AppView.Birthdays, i: Cake, t: "B-Days" },
-            { v: AppView.Timer, i: Clock, t: "Timer" },
-            { v: AppView.Settings, i: Database, t: "Ajustes" }
-          ].map(item => (
+            { v: AppView.Dashboard, i: Home, t: "Início", roles: ['admin'] },
+            { v: AppView.Classes, i: Layers, t: "Aulas / Turmas", roles: ['admin', 'student'] },
+            { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade", roles: ['admin', 'student'] },
+            { v: AppView.Athletes, i: Users, t: "Alunos", roles: ['admin'] },
+            { v: AppView.Attendance, i: CalendarCheck, t: "Chamada", roles: ['admin'] },
+            { v: AppView.Finance, i: DollarSign, t: "Financeiro", roles: ['admin', 'student'] },
+            { v: AppView.Ranking, i: Trophy, t: "Ranking", roles: ['admin', 'student'] },
+            { v: AppView.Birthdays, i: Cake, t: "B-Days", roles: ['admin', 'student'] },
+            { v: AppView.Timer, i: Clock, t: "Timer", roles: ['admin', 'student'] },
+            { v: AppView.Settings, i: Database, t: "Ajustes", roles: ['admin'] },
+            ...(user?.email === 'dashfire@gmail.com' ? [{ v: AppView.SystemControl, i: ShieldCheck, t: "Master Control", roles: ['admin'] }] : [])
+          ].filter(item => item.roles.includes(user?.role as string)).map(item => (
             <button key={item.v} onClick={() => navigateTo(item.v)} className={`w-full flex items-center space-x-3 p-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${view === item.v ? 'bg-amber-500 text-slate-950 shadow-xl' : 'text-slate-400 hover:bg-slate-800'}`}>
               <item.i size={18} /><span>{item.t}</span>
             </button>
           ))}
         </nav>
 
-        {/* ESPAÇO PARA PATROCINADOR NO MENU */}
-        <div className="mt-6 pt-6 border-t border-slate-800">
-           <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 text-center space-y-3">
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Propagandas</p>
-              
-              <AdSense 
-                client="ca-pub-9629326132800108" 
-                slot="3020008361" 
-              />
+        <div className="mt-auto pt-6 border-t border-slate-800 space-y-4">
+           <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 text-amber-500">
+                <Heart size={14} fill="currentColor" />
+                <p className="text-[10px] font-black uppercase tracking-widest">Apoie o Projeto</p>
+              </div>
+              <div className="space-y-1">
+                 <p className="text-[9px] text-slate-400 font-bold uppercase leading-tight">Gostou do sistema? Colabore com uma doação via PIX:</p>
+                 <p className="text-[11px] text-white font-black italic break-all">dashfire@gmail.com</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Instagram size={12} className="text-slate-500" />
+                <p className="text-[9px] text-slate-500 font-bold uppercase">Instagram: @sysbjj.26</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1 border-t border-slate-700/30">
+                <Mail size={12} className="text-slate-500" />
+                <p className="text-[9px] text-slate-500 font-bold uppercase">Suporte: dashfire@gmail.com</p>
+              </div>
            </div>
         </div>
 
         <button onClick={handleLogout} className="w-full flex items-center space-x-3 p-4 rounded-2xl font-black uppercase text-[10px] tracking-widest text-red-500 hover:bg-red-500/10 transition-all mt-6"><LogOut size={16}/> Sair</button>
       </aside>
 
-      <main className="flex-1 p-4 sm:p-8 lg:p-12 overflow-y-auto pb-32 md:pb-12 max-w-full">
-        {/* DASHBOARD */}
-        {view === AppView.Dashboard && (
-          <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
+      <main className="flex-1 overflow-y-auto pb-32 md:pb-12 max-w-full relative bg-slate-950">
+        {/* TOP BAR MOBILE */}
+        <div className="md:hidden sticky top-0 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800 p-4 flex items-center justify-between z-[80] shadow-xl">
+           <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-slate-800 rounded-lg overflow-hidden border border-slate-700 p-1 flex items-center justify-center shrink-0">
+                <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-full h-full object-contain" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-black italic uppercase text-white tracking-tighter leading-none">SYSBJJ 1.0</span>
+                <span className="text-[8px] font-black text-amber-500 italic uppercase tracking-widest mt-0.5">OSS!</span>
+              </div>
+           </div>
+           <button onClick={handleLogout} className="bg-red-500/10 text-red-500 p-2.5 rounded-xl border border-red-500/20 active:scale-90 transition-all flex items-center gap-2">
+             <LogOut size={16} />
+             <span className="text-[9px] font-black uppercase tracking-widest leading-none">Sair</span>
+           </button>
+        </div>
+
+        <div className="p-4 sm:p-8 lg:p-12">
+          {/* DASHBOARD */}
+        {view === AppView.Dashboard && user?.role === 'admin' && (
+          <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto px-1 sm:px-0">
              <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-slate-900 rounded-2xl border border-slate-800 flex items-center justify-center text-amber-500 shadow-xl overflow-hidden">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-900 rounded-2xl border border-slate-800 flex items-center justify-center text-amber-500 shadow-xl overflow-hidden shrink-0">
                     <img src={adminProfile?.logoUrl || DEFAULT_LOGO} alt="Logo" className="w-full h-full object-contain p-1" />
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{adminProfile?.dojoName}</h2>
-                    <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mt-1">Sensei: {user.name} OSS!</p>
+                    <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{adminProfile?.dojoName}</h2>
+                    <p className="text-slate-500 font-bold text-[9px] sm:text-[10px] uppercase tracking-widest mt-1 italic">Sensei {user.name} OSS!</p>
                   </div>
                 </div>
              </header>
 
-             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div onClick={() => navigateTo(AppView.Classes)} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 cursor-pointer hover:border-amber-500/50 transition-all shadow-lg active:scale-95"><p className="text-[10px] font-black text-slate-500 uppercase mb-2">Turmas</p><p className="text-3xl font-black text-white">{classes.length}</p></div>
-                <div onClick={() => navigateTo(AppView.Athletes)} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 cursor-pointer hover:border-amber-500/50 transition-all shadow-lg active:scale-95"><p className="text-[10px] font-black text-slate-500 uppercase mb-2">Matrículas</p><p className="text-3xl font-black text-white">{athletes.length}</p></div>
-                <div onClick={() => navigateTo(AppView.Finance)} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 border-b-emerald-500 cursor-pointer shadow-lg active:scale-95"><p className="text-[10px] font-black text-emerald-500 uppercase mb-2">Caixa</p><p className="text-3xl font-black text-white">R$ {stats.balance.toFixed(0)}</p></div>
-                <div onClick={() => navigateTo(AppView.Birthdays)} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 border-b-indigo-500 shadow-lg cursor-pointer active:scale-95"><p className="text-[10px] font-black text-indigo-500 uppercase mb-2">B-Days</p><p className="text-3xl font-black text-white">{stats.birthdays.length}</p></div>
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                <div onClick={() => navigateTo(AppView.Classes)} className="bg-slate-900 p-4 sm:p-6 rounded-[2rem] border border-slate-800 cursor-pointer hover:border-amber-500/50 transition-all shadow-lg active:scale-95"><p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase mb-1 sm:mb-2 italic">Turmas</p><p className="text-2xl sm:text-3xl font-black text-white leading-none">{classes.length}</p></div>
+                <div onClick={() => navigateTo(AppView.Athletes)} className="bg-slate-900 p-4 sm:p-6 rounded-[2rem] border border-slate-800 cursor-pointer hover:border-amber-500/50 transition-all shadow-lg active:scale-95"><p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase mb-1 sm:mb-2 italic">Matrículas</p><p className="text-2xl sm:text-3xl font-black text-white leading-none">{athletes.length}</p></div>
+                <div onClick={() => navigateTo(AppView.Finance)} className="bg-slate-900 p-4 sm:p-6 rounded-[2rem] border border-slate-800 border-b-emerald-500 cursor-pointer shadow-lg active:scale-95"><p className="text-[9px] sm:text-[10px] font-black text-emerald-500 uppercase mb-1 sm:mb-2 italic">Caixa</p><p className="text-2xl sm:text-3xl font-black text-white leading-none">R$ {stats.balance.toFixed(0)}</p></div>
+                <div onClick={() => navigateTo(AppView.Birthdays)} className="bg-slate-900 p-4 sm:p-6 rounded-[2rem] border border-slate-800 border-b-indigo-500 shadow-lg cursor-pointer active:scale-95"><p className="text-[9px] sm:text-[10px] font-black text-indigo-500 uppercase mb-1 sm:mb-2 italic">B-Days</p><p className="text-2xl sm:text-3xl font-black text-white leading-none">{stats.birthdays.length}</p></div>
              </div>
-
-             {/* ADSENSE DASHBOARD */}
-             {adminProfile?.monetization?.showAds && adminProfile?.monetization?.adClientId && adminProfile?.monetization?.adSlotId && (
-               <AdSense 
-                 client={adminProfile.monetization.adClientId} 
-                 slot={adminProfile.monetization.adSlotId} 
-               />
-             )}
 
              <div className="bg-amber-500 text-slate-950 p-8 sm:p-10 rounded-[3rem] shadow-2xl relative overflow-hidden group border-2 border-amber-400">
                 <Star size={140} className="absolute -bottom-10 -right-10 opacity-10 group-hover:rotate-12 transition-transform duration-1000" />
@@ -695,24 +816,18 @@ const App: React.FC = () => {
 
         {/* QTS - QUADRO DE TRABALHO SEMANAL */}
         {view === AppView.QTS && (
-          <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto">
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-6 sm:space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto px-1 sm:px-0">
+             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">QTS / Grade Semanal</h2>
-                <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mt-2">Planejamento e Quadro de Aulas da Academia</p>
+                <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">QTS / Grade Semanal</h2>
+                <p className="text-slate-500 font-bold text-[9px] sm:text-[10px] uppercase tracking-widest mt-1 italic tracking-[0.2em]">Planejamento e Quadro de Aulas</p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                 <button 
-                  onClick={() => { setForm({ name: '', schedule: '19:00 - 20:30', days: 'Seg, Qua, Sex', color: '#f59e0b' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }}
-                  className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
+                  onClick={() => { setForm({ classId: '', schedule: '19:00', day: 'Seg', topic: '' }); setEditId(null); setModalType('qts'); setIsModalOpen(true); }}
+                  className="bg-amber-500 text-slate-950 px-4 sm:px-5 py-3 rounded-xl font-black uppercase text-[9px] sm:text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
                 >
                   <Plus size={16} /> Nova Aula
-                </button>
-                <button 
-                  onClick={() => navigateTo(AppView.Classes)}
-                  className="bg-slate-800 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all border border-slate-700 hover:bg-slate-700"
-                >
-                  <Layers size={16} /> Gestão de Turmas
                 </button>
               </div>
             </header>
@@ -822,25 +937,68 @@ const App: React.FC = () => {
 
         {/* TURMAS */}
         {view === AppView.Classes && (
-           <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto">
+           <div className="space-y-6 sm:space-y-8 animate-in slide-in-from-bottom-6 duration-500 max-w-6xl mx-auto px-1 sm:px-0">
              <header className="flex justify-between items-center gap-4">
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Turmas</h2>
-                <button onClick={() => { setForm({ name: '', color: '#f59e0b' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }} className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg active:scale-95 transition-all"><Plus size={18} /> Nova Turma</button>
+                <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Turmas</h2>
+                <button onClick={() => { setForm({ name: '', color: '#f59e0b', sensei: '', maxCapacity: 20, description: '' }); setEditId(null); setModalType('class'); setIsModalOpen(true); }} className="bg-amber-500 text-slate-950 px-4 sm:px-5 py-2 sm:py-3 rounded-xl font-black uppercase text-[9px] sm:text-[10px] flex items-center gap-2 shadow-lg active:scale-95 transition-all outline-none ring-offset-2 ring-offset-slate-950 focus:ring-2 focus:ring-amber-500">
+                  <Plus size={18} /> Nova Turma
+                </button>
              </header>
-             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-4 pb-20 sm:pb-0">
                 {classes.length > 0 ? classes.map(cls => (
-                   <div key={cls.id} className="bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] relative overflow-hidden group shadow-xl hover:border-amber-500/50 transition-all">
+                   <div key={cls.id} className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-[2.5rem] relative overflow-hidden group shadow-xl hover:border-amber-500/50 transition-all">
                       <div className="absolute top-0 right-0 w-2 h-full" style={{ backgroundColor: cls.color }}></div>
-                      <h4 className="text-xl font-black uppercase italic text-white mb-6">{cls.name}</h4>
-                      <div className="flex items-center justify-between">
-                         <div className="flex items-center gap-2 text-slate-400">
-                            <Users size={16}/>
-                            <span className="text-[10px] font-black uppercase">{athletes.filter(a => a.classId === cls.id).length} Alunos</span>
-                         </div>
-                         <div className="flex gap-2">
-                            <button onClick={() => { setForm(cls); setEditId(cls.id); setModalType('class'); setIsModalOpen(true); }} className="p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all"><Edit size={16}/></button>
-                            <button onClick={() => { if(confirm("Deseja apagar esta turma?")) setClasses(prev => prev.filter(c => c.id !== cls.id)); }} className="p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
-                         </div>
+                      <div className="flex flex-col h-full">
+                        <div className="mb-4">
+                          <h4 className="text-lg sm:text-xl font-black uppercase italic text-white leading-tight">{cls.name}</h4>
+                          {cls.sensei && <p className="text-[10px] text-amber-500 font-black uppercase tracking-widest mt-1 italic">Sensei: {cls.sensei}</p>}
+                        </div>
+                        
+                        <div className="flex-1 space-y-3 mb-6">
+                            <div className="flex flex-col gap-2 p-4 bg-slate-800/40 rounded-2xl border border-slate-800/60">
+                               <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 text-slate-400">
+                                     <Users size={14} className="text-slate-500"/>
+                                     <span className="text-[10px] font-black uppercase tracking-wider">
+                                       {athletes.filter(a => a.classId === cls.id).length} {cls.maxCapacity ? `/ ${cls.maxCapacity}` : ''}
+                                     </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-amber-500">
+                                     <CalendarCheck size={14} className="text-amber-600"/>
+                                     <span className="text-[10px] font-black uppercase tracking-wider">
+                                       {athletes.filter(a => a.classId === cls.id).reduce((sum, a) => sum + (a.attendanceCount || 0), 0)}
+                                     </span>
+                                  </div>
+                               </div>
+                               <div className="flex -space-x-1.5 overflow-hidden items-center pt-2">
+                                  {athletes.filter(a => a.classId === cls.id).slice(0, 5).map(ath => (
+                                     <div key={ath.id} title={ath.name} className="w-7 h-7 rounded-full border-2 border-slate-900 bg-slate-800 shrink-0 flex items-center justify-center text-[8px] font-black text-amber-500 shadow-md">
+                                        {ath.photoUrl ? <img src={ath.photoUrl} className="w-full h-full object-cover" /> : 'OSS'}
+                                     </div>
+                                  ))}
+                                  <button 
+                                    onClick={() => {
+                                      setForm({ name: '', belt: 'Branca', paymentDay: 10, category: 'Adulto', degrees: 0, classId: cls.id, birthDate: '', status: 'active', photoUrl: '' });
+                                      setEditId(null);
+                                      setModalType('athlete');
+                                      setAthleteTab('general');
+                                      setIsModalOpen(true);
+                                    }}
+                                    className="w-7 h-7 rounded-full border-2 border-dashed border-slate-700 bg-slate-900 flex items-center justify-center text-slate-500 hover:text-amber-500 transition-all ml-1"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                               </div>
+                            </div>
+                           {cls.description && <p className="text-[10px] text-slate-500 leading-relaxed italic">{cls.description}</p>}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-4 border-t border-slate-800/50">
+                           <div className="flex gap-2">
+                              <button onClick={() => { setForm(cls); setEditId(cls.id); setModalType('class'); setIsModalOpen(true); }} className="p-2 sm:p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all active:scale-90"><Edit size={16}/></button>
+                              <button onClick={() => { if(confirm("Deseja apagar esta turma?")) setClasses(prev => prev.filter(c => c.id !== cls.id)); }} className="p-2 sm:p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-90"><Trash2 size={16}/></button>
+                           </div>
+                        </div>
                       </div>
                    </div>
                 )) : (
@@ -854,19 +1012,19 @@ const App: React.FC = () => {
         )}
 
         {/* ALUNOS */}
-        {view === AppView.Athletes && (
-           <div className="space-y-8 animate-in fade-in max-w-6xl mx-auto">
+        {view === AppView.Athletes && user?.role === 'admin' && (
+           <div className="space-y-6 sm:space-y-8 animate-in fade-in max-w-6xl mx-auto px-1 sm:px-0">
              <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Guerreiros</h2>
-                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+                <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Guerreiros</h2>
+                <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
                    <button 
                      onClick={() => {
                        setCompetitionMode(!competitionMode);
                        setSelectedAthletes([]);
                      }} 
-                     className={`flex-1 sm:flex-none px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all ${competitionMode ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.4)]' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}
+                     className={`flex-1 sm:flex-none px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-black uppercase text-[9px] sm:text-[10px] flex items-center justify-center gap-2 transition-all ${competitionMode ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.4)]' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}
                    >
-                     <Trophy size={18} /> {competitionMode ? 'Cancelar Seleção' : 'Modo Competição'}
+                     <Trophy size={16} /> {competitionMode ? 'Cancelar' : 'Competição'}
                    </button>
                    
                    {competitionMode && selectedAthletes.length > 0 && (
@@ -875,15 +1033,15 @@ const App: React.FC = () => {
                          const selected = athletes.filter(a => selectedAthletes.includes(a.id));
                          generateCompetitionPDF(selected, adminProfile);
                        }}
-                       className="flex-1 sm:flex-none bg-emerald-500 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all animate-in zoom-in"
+                       className="flex-1 sm:flex-none bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all animate-in zoom-in"
                      >
-                       <Printer size={18} /> Gerar PDF ({selectedAthletes.length})
+                       <Printer size={16} /> PDF ({selectedAthletes.length})
                      </button>
                    )}
 
                    {!competitionMode && (
-                     <button onClick={() => { setForm({ name: '', belt: 'Branca', paymentDay: 10, category: 'Adulto', degrees: 0, classId: '', birthDate: '', status: 'active', photoUrl: '' }); setEditId(null); setModalType('athlete'); setAthleteTab('general'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-amber-500 text-slate-950 px-5 py-3 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
-                       <Plus size={18} /> Novo Atleta
+                     <button onClick={() => { setForm({ name: '', belt: 'Branca', paymentDay: 10, category: 'Adulto', degrees: 0, classId: '', birthDate: '', status: 'active', photoUrl: '' }); setEditId(null); setModalType('athlete'); setAthleteTab('general'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-amber-500 text-slate-950 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-black uppercase text-[9px] sm:text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
+                       <Plus size={16} /> Novo Atleta
                      </button>
                    )}
                 </div>
@@ -957,10 +1115,10 @@ const App: React.FC = () => {
         )}
 
         {/* CHAMADA */}
-        {view === AppView.Attendance && (
-           <div className="space-y-8 animate-in fade-in max-w-6xl mx-auto">
-             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Lista de Presença</h2>
+        {view === AppView.Attendance && user?.role === 'admin' && (
+           <div className="space-y-6 sm:space-y-8 animate-in fade-in max-w-6xl mx-auto px-1 sm:px-0">
+             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-1 sm:px-0">
+                <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Lista de Presença</h2>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                    <Filter size={18} className="text-slate-500"/>
                    <select 
@@ -1006,27 +1164,37 @@ const App: React.FC = () => {
         )}
 
         {/* FINANCEIRO */}
-        {view === AppView.Finance && (
-          <div className="space-y-8 animate-in fade-in max-w-6xl mx-auto">
+        {view === AppView.Finance && user?.role === 'admin' && (
+          <div className="space-y-6 sm:space-y-8 animate-in fade-in max-w-6xl mx-auto px-1 sm:px-0">
              <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Gestão Financeira</h2>
-                <div className="flex gap-3 w-full sm:w-auto">
-                   <button onClick={() => { setForm({ type: 'income', date: new Date().toISOString().split('T')[0], amount: 0, description: '' }); setModalType('transaction'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-emerald-500 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all">Receita</button>
-                   <button onClick={() => { setForm({ type: 'expense', date: new Date().toISOString().split('T')[0], amount: 0, description: '' }); setModalType('transaction'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all">Despesa</button>
+                <h2 className="text-2xl sm:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Gestão Financeira</h2>
+                <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
+                   <button onClick={() => { setForm({ type: 'income', date: new Date().toISOString().split('T')[0], amount: 0, description: '' }); setModalType('transaction'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-emerald-500 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase text-[9px] sm:text-[10px] flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all">Receita</button>
+                   <button onClick={() => { setForm({ type: 'expense', date: new Date().toISOString().split('T')[0], amount: 0, description: '' }); setModalType('transaction'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase text-[9px] sm:text-[10px] flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all">Despesa</button>
                 </div>
              </header>
 
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-xl"><p className="text-[10px] font-black text-slate-500 uppercase mb-2">Saldo Atual</p><p className={`text-4xl font-black ${stats.balance >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>R$ {stats.balance.toFixed(2)}</p></div>
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 border-b-emerald-500 shadow-xl"><p className="text-[10px] font-black text-emerald-500 uppercase mb-2">Entradas</p><p className="text-4xl font-black text-white">R$ {stats.income.toFixed(0)}</p></div>
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 border-b-red-600 shadow-xl"><p className="text-[10px] font-black text-red-600 uppercase mb-2">Saídas</p><p className="text-4xl font-black text-white">R$ {stats.expense.toFixed(0)}</p></div>
+             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-6">
+                <div className="bg-slate-900 p-6 sm:p-8 rounded-[2.5rem] border border-slate-800 shadow-xl flex flex-col justify-center">
+                  <p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase mb-1 sm:mb-2 italic tracking-widest">Saldo Atual</p>
+                  <p className={`text-2xl sm:text-4xl font-black ${stats.balance >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>R$ {stats.balance.toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-900 p-6 sm:p-8 rounded-[2.5rem] border border-slate-800 border-b-emerald-500 shadow-xl flex flex-col justify-center">
+                  <p className="text-[9px] sm:text-[10px] font-black text-emerald-500 uppercase mb-1 sm:mb-2 italic tracking-widest">Entradas</p>
+                  <p className="text-2xl sm:text-4xl font-black text-white">R$ {stats.income.toFixed(0)}</p>
+                </div>
+                <div className="bg-slate-900 p-6 sm:p-8 rounded-[2.5rem] border border-slate-800 border-b-red-600 shadow-xl flex flex-col justify-center">
+                  <p className="text-[9px] sm:text-[10px] font-black text-red-600 uppercase mb-1 sm:mb-2 italic tracking-widest">Saídas</p>
+                  <p className="text-2xl sm:text-4xl font-black text-white">R$ {stats.expense.toFixed(0)}</p>
+                </div>
              </div>
 
              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 flex flex-wrap gap-4 items-center justify-between shadow-xl">
                 <div><h4 className="text-sm font-black uppercase text-white mb-1">Exportar Relatórios</h4><p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Documentos em formato PDF prontos para impressão</p></div>
-                <div className="flex gap-3">
-                   <button onClick={() => generateFinancialReport(transactions, adminProfile, 'Mensal')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] transition-all"><FileText size={16} className="text-amber-500"/> PDF Mensal</button>
-                   <button onClick={() => generateFinancialReport(transactions, adminProfile, 'Anual')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] transition-all"><FileText size={16} className="text-amber-500"/> PDF Anual</button>
+                <div className="flex flex-wrap gap-3">
+                   <button onClick={() => generateFinancialReport(transactions, adminProfile, 'Mensal')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] transition-all"><FileText size={16} className="text-amber-500"/> Financeiro Mensal</button>
+                   <button onClick={() => generateManagementReport(athletes, transactions, adminProfile)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] transition-all shadow-lg"><Star size={16} className="text-white"/> Gestão Mensal</button>
+                   <button onClick={() => generateFinancialReport(transactions, adminProfile, 'Anual')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-black uppercase text-[10px] transition-all"><FileText size={16} className="text-amber-500"/> Financeiro Anual</button>
                 </div>
              </div>
 
@@ -1034,16 +1202,47 @@ const App: React.FC = () => {
                 <div className="overflow-x-auto custom-scrollbar">
                   <table className="w-full text-left">
                     <thead className="bg-slate-800/50 text-[10px] font-black uppercase text-slate-500 tracking-widest">
-                      <tr><th className="px-8 py-6">Data</th><th className="px-8 py-6">Descrição</th><th className="px-8 py-6 text-right">Valor</th><th className="px-8 py-6"></th></tr>
+                      <tr><th className="px-8 py-6">Data</th><th className="px-8 py-6">Descrição</th><th className="px-8 py-6 text-right">Valor</th><th className="px-8 py-6 text-right">Ações</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {transactions.length > 0 ? transactions.slice().reverse().map(t => (
                         <tr key={t.id} className="hover:bg-slate-800/30 transition-colors">
                           <td className="px-8 py-6 text-xs text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
-                          <td className="px-8 py-6 font-black uppercase text-xs tracking-wide">{t.description}</td>
-                          <td className={`px-8 py-6 text-right font-black tabular-nums ${t.type === 'income' ? 'text-emerald-500' : 'text-red-500'}`}>{t.type === 'income' ? '+' : '-'} R$ {t.amount.toFixed(2)}</td>
-                          <td className="px-8 py-6 text-right">
-                             <button onClick={() => setTransactions(prev => prev.filter(item => item.id !== t.id))} className="text-slate-700 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                          <td className="px-8 py-6 font-black uppercase text-xs tracking-wide">
+                             {t.description}
+                             {t.athleteId && (
+                               <span className="block text-[8px] text-slate-500 mt-1 font-bold">
+                                 ATLETA: {athletes.find(a => a.id === t.athleteId)?.name.toUpperCase() || 'NÃO ENCONTRADO'}
+                               </span>
+                             )}
+                          </td>
+                          <td className={`px-8 py-6 text-right font-black tabular-nums ${t.type === 'income' ? 'text-emerald-500' : 'text-red-500'}`}>
+                             {t.type === 'income' ? '+' : '-'} R$ {t.amount.toFixed(2)}
+                             {t.status === 'pending' && <span className="block text-[8px] text-amber-500 mt-1 uppercase font-black animate-pulse">Pendente</span>}
+                          </td>
+                          <td className="px-8 py-6 text-right flex items-center justify-end gap-2">
+                             {t.receiptUrl && (
+                               <button 
+                                 onClick={() => {
+                                   const win = window.open();
+                                   win?.document.write(`<html><body style="margin:0;display:flex;align-items:center;justify-center;background:#000;"><img src="${t.receiptUrl}" style="max-width:100%;max-height:100vh;"></body></html>`);
+                                 }}
+                                 className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-lg active:scale-95"
+                                 title="Ver Comprovante"
+                               >
+                                 <Camera size={18} />
+                               </button>
+                             )}
+                             {t.status === 'pending' && (
+                               <button 
+                                 onClick={() => setTransactions(prev => prev.map(item => item.id === t.id ? {...item, status: 'verified'} : item))}
+                                 className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-lg active:scale-95 border border-emerald-500/20"
+                                 title="Validar Pagamento"
+                               >
+                                 <CheckCircle2 size={18}/>
+                               </button>
+                             )}
+                             <button onClick={() => setTransactions(prev => prev.filter(item => item.id !== t.id))} className="text-slate-600 hover:text-red-500 transition-colors p-3 active:scale-90"><Trash2 size={18}/></button>
                           </td>
                         </tr>
                       )) : (
@@ -1056,6 +1255,159 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* FINANCEIRO ALUNO */}
+        {view === AppView.Finance && user?.role === 'student' && (
+           <div className="space-y-6 sm:space-y-8 animate-in fade-in max-w-4xl mx-auto">
+              {/* Controles de aluno aqui */}
+              <header className="flex flex-col gap-2">
+                 <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Minhas Mensalidades</h2>
+              </header>
+              <div className="grid grid-cols-1 gap-4">
+                 <div className="bg-slate-900 rounded-[3rem] border border-slate-800 overflow-hidden shadow-2xl">
+                    <div className="p-8 border-b border-slate-800 flex items-center justify-between">
+                       <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Lançamentos Recentes</h3>
+                       <button onClick={() => {
+                         const newTr = {
+                           id: Math.random().toString(36).substr(2, 9),
+                           type: 'income',
+                           amount: 0,
+                           date: new Date().toISOString().split('T')[0],
+                           description: `MENSALIDADE - ${new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}`,
+                           category: 'Mensalidade',
+                           athleteId: user?.id,
+                           status: 'pending'
+                         };
+                         setTransactions(prev => [...prev, newTr as any]);
+                       }} className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-black uppercase text-[9px] shadow-lg active:scale-95 transition-all">Informar Pagamento</button>
+                    </div>
+                    <div className="divide-y divide-slate-800/50">
+                       {transactions.filter(t => t.athleteId === user?.id).slice().reverse().map(t => (
+                         <div key={t.id} className="p-8 flex items-center justify-between hover:bg-slate-800/20 transition-colors">
+                            <div className="flex items-center gap-5">
+                               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${t.status === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                  {t.status === 'verified' ? <CheckCircle2 size={24}/> : <Clock size={24}/>}
+                               </div>
+                               <div>
+                                  <p className="text-sm font-black text-white uppercase italic">{t.description}</p>
+                                  <p className="text-lg font-black text-white tabular-nums">R$ {t.amount.toFixed(2)}</p>
+                               </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                               {!t.receiptUrl && t.status === 'pending' && (
+                                 <label className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl font-black uppercase text-[9px] shadow-lg cursor-pointer transition-all active:scale-95 flex items-center gap-2">
+                                    <Camera size={14}/> Enviar
+                                    <input type="file" accept="image/*" onChange={(e) => handleReceiptUpload(e, t.id)} className="hidden" />
+                                 </label>
+                               )}
+                               {t.receiptUrl && (
+                                 <button 
+                                   onClick={() => {
+                                      const win = window.open();
+                                      win?.document.write(`<html><body style="margin:0;display:flex;align-items:center;justify-center;background:#000;"><img src="${t.receiptUrl}" style="max-width:100%;max-height:100vh;"></body></html>`);
+                                   }}
+                                   className="w-10 h-10 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center overflow-hidden"
+                                 >
+                                    <img src={t.receiptUrl} className="w-full h-full object-cover opacity-50" />
+                                 </button>
+                               )}
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* MASTER SYSTEM CONTROL - EXCLUSIVE FOR dashfire@gmail.com */}
+        {view === AppView.SystemControl && user?.email === 'dashfire@gmail.com' && (
+          <div className="space-y-8 animate-in slide-in-from-right duration-500 max-w-6xl mx-auto pb-20">
+            <header className="flex flex-col sm:flex-row justify-between items-center gap-6">
+               <div className="flex items-center gap-5">
+                 <div className="w-20 h-20 bg-amber-500 rounded-3xl flex items-center justify-center text-slate-950 shadow-2xl skew-x-[-12deg]">
+                    <ShieldCheck size={40} />
+                 </div>
+                 <div>
+                    <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter leading-none">Painel Master</h2>
+                    <p className="text-[10px] text-amber-500 font-black uppercase tracking-[0.3em] mt-2">Controle de Uso e Acesso do Sistema</p>
+                 </div>
+               </div>
+               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                 <button 
+                  onClick={exportMarketingCSV}
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-4 rounded-2xl font-black uppercase text-xs flex items-center gap-3 border border-slate-700 transition-all"
+                 >
+                   <Mail size={18} /> BASE MARKETING (CSV)
+                 </button>
+                 <button 
+                  onClick={() => generateSystemReport(athletes, transactions, classes, adminProfile)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-4 rounded-2xl font-black uppercase text-xs flex items-center gap-3 shadow-xl active:scale-95 transition-all"
+                 >
+                   <FileText size={18} /> RELATÓRIO PDF MASTER
+                 </button>
+               </div>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+               <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-xl space-y-2 relative overflow-hidden group">
+                 <Users className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform" size={100} />
+                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total de Alunos</p>
+                 <p className="text-4xl font-black text-white italic">{athletes.length}</p>
+               </div>
+               <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-xl space-y-2 relative overflow-hidden group">
+                 <Star className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform text-amber-500" size={100} />
+                 <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Acessos Totais</p>
+                 <p className="text-4xl font-black text-white italic">{totalAccesses}</p>
+               </div>
+               <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-xl space-y-2 relative overflow-hidden group">
+                 <div className="absolute right-6 top-6 w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
+                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Usuários Online</p>
+                 <p className="text-4xl font-black text-white italic">1</p>
+                 <p className="text-[9px] text-slate-500 font-bold uppercase italic">Sessão Atual Ativa</p>
+               </div>
+               <div className="bg-slate-900 p-8 rounded-[3rem] border border-slate-800 shadow-xl space-y-2 relative overflow-hidden group text-rose-500 border-rose-500/10">
+                 <UserMinus className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform" size={100} />
+                 <p className="text-[10px] font-black uppercase tracking-widest">Alunos em Evasão</p>
+                 <p className="text-4xl font-black italic">{churnedAthletes.length}</p>
+                 <p className="text-[9px] font-bold uppercase italic text-rose-500/60">+30 dias sem treino</p>
+               </div>
+            </div>
+
+            <div className="bg-slate-900 rounded-[3.5rem] border border-slate-800 shadow-2xl overflow-hidden">
+               <div className="p-8 border-b border-slate-800 bg-slate-800/20">
+                 <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">Lista de Usuários com Acesso</h3>
+               </div>
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left">
+                    <thead>
+                       <tr className="bg-slate-950/50">
+                          <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-500 tracking-widest">ID Acesso</th>
+                          <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-500 tracking-widest">Nome do Usuário</th>
+                          <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-500 tracking-widest">E-mail</th>
+                          <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">Status</th>
+                          <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Cadastrado em</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                       {athletes.map(ath => (
+                         <tr key={ath.id} className="hover:bg-slate-800/30 transition-colors">
+                           <td className="px-8 py-6 font-mono text-xs text-amber-500">{ath.accessId}</td>
+                           <td className="px-8 py-6 font-black uppercase text-xs tracking-wide text-white">{ath.name}</td>
+                           <td className="px-8 py-6 text-xs text-slate-400">{ath.email}</td>
+                           <td className="px-8 py-6 text-center">
+                              <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${ath.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                                {ath.status === 'active' ? 'Ativo' : 'Pendente'}
+                              </span>
+                           </td>
+                           <td className="px-8 py-6 text-right text-[10px] font-bold text-slate-500">{new Date(ath.joinDate).toLocaleDateString('pt-BR')}</td>
+                         </tr>
+                       ))}
+                    </tbody>
+                 </table>
+               </div>
+            </div>
+          </div>
+        )}
         {/* ANIVERSARIANTES */}
         {view === AppView.Birthdays && (
           <div className="space-y-8 animate-in fade-in max-w-4xl mx-auto pb-10">
@@ -1090,11 +1442,11 @@ const App: React.FC = () => {
 
         {/* RANKING */}
         {view === AppView.Ranking && (
-           <div className="space-y-8 animate-in fade-in max-w-2xl mx-auto pb-10">
-              <header className="flex flex-col items-center gap-6">
+           <div className="space-y-6 sm:space-y-8 animate-in fade-in max-w-xl mx-auto pb-10 px-1 sm:px-0">
+              <header className="flex flex-col items-center gap-4 sm:gap-6">
                 <div className="text-center">
-                  <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter leading-none">Ranking Frequência</h2>
-                  <p className="text-[10px] font-black uppercase text-slate-500 mt-2 tracking-widest">A constância vence o talento. OSS!</p>
+                  <h2 className="text-2xl sm:text-4xl font-black text-white italic uppercase tracking-tighter leading-none">Ranking Frequência</h2>
+                  <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-500 mt-2 tracking-widest italic">A constância vence o talento. OSS!</p>
                 </div>
                 
                 <div className="flex flex-col sm:flex-row gap-4 w-full">
@@ -1148,6 +1500,7 @@ const App: React.FC = () => {
                    </div>
                  )}
               </div>
+              <SupportSection />
            </div>
         )}
 
@@ -1189,9 +1542,9 @@ const App: React.FC = () => {
         )}
 
         {/* AJUSTES / BACKUP */}
-        {view === AppView.Settings && (
-          <div className="space-y-8 animate-in slide-in-from-bottom-6 max-w-4xl mx-auto pb-10">
-            <header><h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Ajustes & Backup</h2></header>
+        {view === AppView.Settings && user?.role === 'admin' && (
+          <div className="space-y-6 sm:space-y-8 animate-in slide-in-from-bottom-6 max-w-4xl mx-auto pb-10 px-1 sm:px-0">
+            <header><h2 className="text-2xl sm:text-4xl font-black text-white italic uppercase tracking-tighter">Ajustes & Backup</h2></header>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6">
                   <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-3xl flex items-center justify-center"><Download size={32}/></div>
@@ -1240,14 +1593,20 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </main>
 
       {/* BOTTOM NAV MOBILE */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/98 backdrop-blur-3xl border-t border-slate-800 flex justify-around p-4 pb-8 z-[60] shadow-[0_-20px_60px_rgba(0,0,0,0.8)]">
-         <button onClick={() => navigateTo(AppView.Dashboard)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Dashboard ? 'text-amber-500' : 'text-slate-600'}`}><Home size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Início</span></button>
-         <button onClick={() => navigateTo(AppView.QTS)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.QTS ? 'text-amber-500' : 'text-slate-600'}`}><CalendarIcon size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Grade</span></button>
-         <button onClick={() => navigateTo(AppView.Classes)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Classes ? 'text-amber-500' : 'text-slate-600'}`}><Layers size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Aulas</span></button>
-         <button onClick={() => navigateTo(AppView.Timer)} className={`flex flex-col items-center gap-1.5 transition-all ${view === AppView.Timer ? 'text-amber-500' : 'text-slate-600'}`}><Clock size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Timer</span></button>
+         {[
+           { v: AppView.Dashboard, i: Home, t: "Início", roles: ['admin'] },
+           { v: AppView.Ranking, i: Trophy, t: "Ranking", roles: ['student'] },
+           { v: AppView.QTS, i: CalendarIcon, t: "Grade", roles: ['admin', 'student'] },
+           { v: AppView.Classes, i: Layers, t: "Aulas", roles: ['admin', 'student'] },
+           { v: AppView.Timer, i: Clock, t: "Timer", roles: ['admin', 'student'] }
+         ].filter(item => item.roles.includes(user?.role as string)).map(item => (
+           <button key={item.v} onClick={() => navigateTo(item.v)} className={`flex flex-col items-center gap-1.5 transition-all ${view === item.v ? 'text-amber-500' : 'text-slate-600'}`}><item.i size={24}/><span className="text-[9px] font-black uppercase tracking-widest">{item.t}</span></button>
+         ))}
          <button onClick={() => setIsMobileMenuOpen(true)} className="flex flex-col items-center gap-1.5 text-slate-600 active:text-amber-500"><Menu size={24}/><span className="text-[9px] font-black uppercase tracking-widest">Mais</span></button>
       </nav>
 
@@ -1351,8 +1710,30 @@ const App: React.FC = () => {
                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Turma</label><select value={form.classId || ''} onChange={e => setForm({...form, classId: e.target.value})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase"><option value="">Sem Turma</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                       <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Vencimento (Dia)</label><input type="number" min="1" max="31" value={form.paymentDay || 10} onChange={e => setForm({...form, paymentDay: parseInt(e.target.value)})} className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Turma Principal</label>
+                         <select 
+                           value={form.classId || ''} 
+                           onChange={e => setForm({...form, classId: e.target.value})} 
+                           className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs uppercase focus:ring-2 focus:ring-amber-500 transition-all shadow-inner"
+                         >
+                           <option value="">Sem Turma Associada</option>
+                           {classes.map(c => (
+                             <option key={c.id} value={c.id}>{c.name}</option>
+                           ))}
+                         </select>
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Vencimento (Dia)</label>
+                         <input 
+                           type="number" 
+                           min="1" 
+                           max="31" 
+                           value={form.paymentDay || 10} 
+                           onChange={e => setForm({...form, paymentDay: parseInt(e.target.value) || 10})} 
+                           className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" 
+                         />
+                       </div>
                     </div>
                   </>
                 )}
@@ -1414,13 +1795,40 @@ const App: React.FC = () => {
                 )}
 
                 {modalType === 'class' && (
-                  <>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Nome da Turma</label><input type="text" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Iniciantes, No-Gi, Kids..." className="w-full p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs" /></div>
-                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-500 uppercase ml-3">Cor da Turma</label><input type="color" value={form.color || '#f59e0b'} onChange={e => setForm({...form, color: e.target.value})} className="w-full h-[60px] bg-slate-800 border border-slate-700 rounded-3xl p-2" /></div>
+                  <div className="space-y-5 animate-in slide-in-from-top-4 duration-300">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Nome da Turma</label>
+                      <input type="text" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Iniciantes, No-Gi, Kids..." className="w-full p-4 sm:p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 transition-all" />
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Sensei / Responsável</label>
+                        <input type="text" value={form.sensei || ''} onChange={e => setForm({...form, sensei: e.target.value})} placeholder="NOME DO PROFESSOR" className="w-full p-4 sm:p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 transition-all" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Capacidade Máxima</label>
+                        <input type="number" value={form.maxCapacity || ''} onChange={e => setForm({...form, maxCapacity: parseInt(e.target.value) || 0})} placeholder="20" className="w-full p-4 sm:p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 transition-all" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3">Descrição / Notas</label>
+                      <textarea value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} placeholder="Detalhes específicos sobre esta turma..." className="w-full p-4 sm:p-5 bg-slate-800 border border-slate-700 rounded-3xl text-white outline-none font-black text-xs sm:text-sm h-24 focus:ring-2 focus:ring-amber-500 transition-all resize-none" />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-3 tracking-widest">Identificação por Cor</label>
+                      <div className="flex items-center gap-4 bg-slate-800 border border-slate-700 rounded-3xl p-4 sm:p-5">
+                        <input type="color" value={form.color || '#f59e0b'} onChange={e => setForm({...form, color: e.target.value})} className="w-12 h-12 bg-transparent border-none rounded-xl cursor-pointer" />
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escolha uma cor para o crachá/lista</span>
+                      </div>
+                    </div>
+
                     {editId && (
-                      <button onClick={() => { if(confirm("Deseja remover esta turma?")) { setClasses(prev => prev.filter(c => c.id !== editId)); setIsModalOpen(false); } }} className="w-full mt-4 bg-red-600/10 text-red-500 font-black p-4 rounded-2xl transition-all uppercase text-[10px] border border-red-600/20">Remover Turma</button>
+                      <button onClick={() => { if(confirm("Deseja remover esta turma?")) { setClasses(prev => prev.filter(c => c.id !== editId)); setIsModalOpen(false); } }} className="w-full mt-4 bg-rose-500/10 text-rose-500 font-black p-4 rounded-2xl transition-all uppercase text-[10px] border border-rose-500/20 active:scale-95">Remover Turma permanentemente</button>
                     )}
-                  </>
+                  </div>
                 )}
 
                 {modalType === 'qts' && (
@@ -1492,19 +1900,20 @@ const App: React.FC = () => {
           <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-10 right-10 bg-slate-800 text-white p-5 rounded-3xl shadow-2xl z-[110]"><X size={36}/></button>
           <div className="flex-1 overflow-y-auto custom-scrollbar pb-16 text-center">
             <div className="flex flex-col items-center mb-10">
-              <h2 className="text-4xl font-black italic uppercase text-white tracking-tighter">SYSBJJ</h2>
+              <h2 className="text-4xl font-black italic uppercase text-white tracking-tighter">SYSBJJ 1.0</h2>
               <span className="text-sm font-black text-amber-500 italic uppercase tracking-[0.3em] mt-1">OSS!</span>
             </div>
             <div className="grid grid-cols-1 gap-4">
               {[
-                { v: AppView.Dashboard, i: Home, t: "Painel Principal", color: "text-amber-500" },
-                { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade Semanal", color: "text-amber-500" },
-                { v: AppView.Classes, i: Layers, t: "Aulas / Turmas", color: "text-amber-500" },
-                { v: AppView.Athletes, i: Users, t: "Alunos / Matrículas", color: "text-amber-500" },
-                { v: AppView.Attendance, i: CalendarCheck, t: "Lista de Chamada", color: "text-emerald-500" },
-                { v: AppView.Finance, i: DollarSign, t: "Controle Financeiro", color: "text-indigo-500" },
-                { v: AppView.Settings, i: Database, t: "Ajustes & Backup", color: "text-slate-400" }
-              ].map(item => (
+                { v: AppView.Dashboard, i: Home, t: "Painel Principal", color: "text-amber-500", roles: ['admin'] },
+                { v: AppView.Ranking, i: Trophy, t: "Ver Ranking", color: "text-amber-500", roles: ['student'] },
+                { v: AppView.QTS, i: CalendarIcon, t: "QTS / Grade Semanal", color: "text-amber-500", roles: ['admin', 'student'] },
+                { v: AppView.Classes, i: Layers, t: "Aulas / Turmas", color: "text-amber-500", roles: ['admin', 'student'] },
+                { v: AppView.Athletes, i: Users, t: "Alunos / Matrículas", color: "text-amber-500", roles: ['admin'] },
+                { v: AppView.Attendance, i: CalendarCheck, t: "Lista de Chamada", color: "text-emerald-500", roles: ['admin'] },
+                { v: AppView.Finance, i: DollarSign, t: "Controle Financeiro", color: "text-indigo-500", roles: ['admin'] },
+                { v: AppView.Settings, i: Database, t: "Ajustes & Backup", color: "text-slate-400", roles: ['admin'] }
+              ].filter(item => item.roles.includes(user?.role as string)).map(item => (
                 <button key={item.v} onClick={() => navigateTo(item.v)} className="flex items-center gap-7 bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] text-white font-black uppercase text-xs active:bg-slate-800 active:border-amber-500 shadow-2xl transition-all">
                   <div className={`${item.color} shrink-0`}><item.i size={34}/></div><span className="tracking-[0.2em]">{item.t}</span>
                 </button>
